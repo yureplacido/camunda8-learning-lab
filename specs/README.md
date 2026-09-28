@@ -1,10 +1,14 @@
 # Specifications
 
-This project follows a lightweight Spec-Driven Development workflow.
+Specs define implementation units.
 
-Each meaningful learning/implementation increment should contain:
-- `spec.md`: what and why;
-- `plan.md`: how it will be implemented;
-- `tasks.md`: small executable tasks.
+A spec answers:
+- why
+- scope
+- requirements
+- constraints
+- verification
+- dependencies
+- related lesson
 
-A specification should be testable and narrow enough to produce a coherent vertical slice.
+Implementation starts only after the corresponding lesson is understood. Use specs/_TEMPLATE/spec.md.

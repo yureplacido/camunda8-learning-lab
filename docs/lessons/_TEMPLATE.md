@@ -35,10 +35,18 @@ To be completed.
 ## Interview questions
 To be completed.
 
+## Evidence
+Record links, commands, test results and observed behavior from the actual experiment. Do not invent execution results.
+
 ## Completion criteria
 - [ ] Concept understood
+- [ ] Mental model explained
+- [ ] Relevant C7 → 8 distinction documented
+- [ ] Scope defined by SPEC
 - [ ] Experiment implemented when applicable
 - [ ] Tests executed
 - [ ] Failure path investigated when relevant
-- [ ] Findings documented
+- [ ] Findings documented from actual execution
+- [ ] Architecture implications documented
 - [ ] Interview review completed
+- [ ] Independent review completed

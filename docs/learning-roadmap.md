@@ -1,5 +1,13 @@
 # Camunda 8 Developer Lead Learning Roadmap
 
+## Module 0 — Orientation
+000 What Camunda is, and what its parts do
+
+Rationale: the original roadmap began at 001, whose deliverable presupposed that the
+reader already knew what a workflow engine is, what BPMN is, and the difference between
+a process definition and a process instance. Lesson 000 establishes that vocabulary
+before anything compares or builds on it.
+
 ## Module 1 — Foundation
 001 Camunda 7 → 8 mental model
 002 Zeebe execution model
@@ -7,6 +15,8 @@
 004 Process instances and variables
 005 Jobs and job workers
 006 Retries, incidents and recovery
+
+Requires: Module 0. Lesson 001 in particular assumes the vocabulary introduced in 000.
 
 ## Module 2 — BPMN and workflow behavior
 007 Messages and correlation

@@ -4,3 +4,10 @@ target/
 *.iml
 .DS_Store
 .env
+
+# Project-scoped mise state: installs, cache and state live inside the repository.
+.mise/
+
+# The vendored Camunda distribution is intentionally committed, including its .env,
+# which holds only local-development defaults. Real secrets must never land there.
+!infra/local/camunda-8.9/.env

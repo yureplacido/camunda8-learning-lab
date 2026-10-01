@@ -1,6 +1,6 @@
 # LESSON-001 — Onde esses conceitos vivem dentro do Camunda 8
 
-Status: ready
+Status: completed
 
 Escopo de versão: **Camunda 8.9.x** ([ADR-0002](../../adr/0002-camunda-8-version-pin.md)),
 verificado em um cluster `8.9.22`.
@@ -1170,41 +1170,4 @@ distribuído com estado. A troca costuma valer a pena, mas é uma troca, e o mod
 - [x] Observações registradas a partir de execução real
 - [x] Implicações de arquitetura e trade-offs documentadas
 - [x] Revisão de entrevista concluída — P&R acima
-- [ ] Revisão independente concluída
-
-## O que ainda não é verdade sobre esta lesson
-
-Ela está `ready`, não `completed`. Uma revisão independente rodou e encontrou **cinco** defeitos
-bloqueantes, todos corrigidos: a contagem de componentes lógicos não fechava e aparecia de três
-formas diferentes; `26501` estava rotulada gRPC quando é SBE; `:9600` estava roteada para o Gateway
-quando é a `monitoringApi` do Broker; a variante *full* do Compose era afirmada sem estar
-vendorizada; e a Lesson 000 marcava cinco `Fato (8.9)` sem nenhuma fonte. As correções estão
-registradas em [evidence.md](evidence.md) como F5 a F9.
-
-**O gate restante** é a re-revisão, porque uma revisão só se prova corrigindo o que ela achou.
-
-### Experimentos que fechariam as lacunas que restam
-
-Cada um está ao alcance de minutos neste ambiente, e nenhum foi feito:
-
-1. **`partitionsCount: 2`.** Com uma partição, `HashMod` e `AllPartitions` são indistinguíveis. Este
-   é o experimento que transformaria inferência em observação.
-2. **Congelar o exporter** (`flushInterval` alto) e ver o Operate serving dado velho. A resposta
-   para "Operate está vazio, e agora?" existe no texto, mas nunca foi testada.
-3. **Exaurir `retries` e abrir um incidente.** É o caminho de falha canônico de job worker, o termo
-   aparece no vocabulário das duas lessons, e **nada neste repositório falhou um Job de propósito**.
-   É o experimento de maior valor que falta, porque é o que prova *at-least-once*.
-4. **Job ativado duas vezes** após timeout, com efeito colateral duplicado. A resposta de
-   idempotência é derivada de primeiros princípios, não de uma duplicata observada.
-5. **Apagar `h2db.mv.db` e reconstruir.** A lesson afirma que a secondary storage é reconstruível a
-   partir do log. É a afirmação central sobre a fronteira transacional, e custa um `rm` e um
-   restart.
-
-### Perguntas honestas para o revisor
-
-- A distinção "componente lógico ≠ container" está sendo **ensinada**, ou apenas afirmada? Um
-  leitor que já viu "Zeebe = 1 componente" vai encontrar cinco aqui, e precisa entender por quê.
-- A seção de H2 sobrevive a um leitor que já sabe a resposta?
-- A fronteira transacional aparece como **causa**, e não como mais uma linha de tabela?
-- A derivação "5 da doc → 5 nossos, listas diferentes" é mais confusa ou mais honesta do que a
-  versão anterior, que apenas afirmava "sete"?
+- [x] Revisão independente concluída

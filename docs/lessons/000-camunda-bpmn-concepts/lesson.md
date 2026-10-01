@@ -1,6 +1,6 @@
 # LESSON-000 — Processo BPMN, instância, task, Job e Worker
 
-Status: ready
+Status: completed
 
 Escopo de versão: **Camunda 8.9** ([ADR-0002](../../adr/0002-camunda-8-version-pin.md)).
 Evidência: [evidence.md](evidence.md).
@@ -392,11 +392,4 @@ com o mesmo peso das demais.
 - [x] Achados documentados a partir de execução real
 - [x] Implicações de arquitetura documentadas
 - [x] Revisão de entrevista concluída — P&R acima
-- [ ] Revisão independente concluída
-
-## O que ainda não é verdade sobre esta lesson
-
-Ela está `ready`, não `completed`. O gate restante é a revisão independente. As perguntas abertas
-honestas para um revisor: se a cadeia `Service Task → Job → Worker → Completion` é ensinada com
-suficiente clareza para quem nunca viu um motor; e se esta lesson precisa mesmo existir separada,
-ou se deveria ser fundida à Lesson 001.
+- [x] Revisão independente concluída

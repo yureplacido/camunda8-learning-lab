@@ -1,0 +1,21 @@
+# Toolchain policy for the Camunda 8 Learning Lab.
+#
+# Goal: nothing this project needs is installed globally. Every tool the lab
+# depends on is installed and pinned *inside this repository*, so the lab is
+# reproducible on any machine without touching the host configuration.
+#
+# How it works:
+#   infra/local/mise-env.sh   exports MISE_* so that mise's install, cache and
+#                             state directories live in <project>/.mise/
+#   infra/local/mise.sh       wrapper: source the env, then run mise
+#
+# Usage:
+#   ./infra/local/mise.sh install      # installs everything pinned below
+#   ./infra/local/mise.sh exec -- java -version
+#   ./infra/local/mise.sh which java
+#
+# Deliberately empty for now. Lesson 001 produces no code and needs no JVM.
+# The first lesson that actually requires Java pins it here, and only versions
+# that Camunda 8.9 officially supports (see docs/adr/0002-camunda-8-version-pin.md).
+
+[tools]

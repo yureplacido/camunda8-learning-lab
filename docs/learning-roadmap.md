@@ -1,67 +1,84 @@
-# Camunda 8 Developer Lead Learning Roadmap
+# Trilha de aprendizado — Camunda 8 Developer Lead
 
-## Module 0 — Orientation
-000 What Camunda is, and what its parts do
+## Módulo 0 — Orientation
 
-Rationale: the original roadmap began at 001, whose deliverable presupposed that the
-reader already knew what a workflow engine is, what BPMN is, and the difference between
-a process definition and a process instance. Lesson 000 establishes that vocabulary
-before anything compares or builds on it.
+**000 — O que é Camunda, e o que suas partes fazem**
 
-## Module 1 — Foundation
-001 Camunda 7 → 8 mental model
-002 Zeebe execution model
-003 BPMN execution
-004 Process instances and variables
-005 Jobs and job workers
-006 Retries, incidents and recovery
+Justificativa: a trilha original começava em `001`, cujo entregável pressuponha que o leitor já
+sabia o que é um workflow engine, o que é BPMN, e a diferença entre *process definition* e
+*process instance*. A Lesson 000 estabelece esse vocabulário antes de qualquer coisa comparar ou
+construir em cima dele.
 
-Requires: Module 0. Lesson 001 in particular assumes the vocabulary introduced in 000.
+Escopo: BPMN, workflow engine, *process definition*, *process instance*, variável, *task*,
+*user task*, *service task*, Job, Worker e completion. Não escreve código e não implanta nada.
 
-## Module 2 — BPMN and workflow behavior
-007 Messages and correlation
-008 Timers
-009 Errors and boundary events
-010 Subprocesses and call activities
-011 Advanced BPMN patterns
+## Módulo 1 — Foundation
 
-## Module 3 — Java/Spring Boot
-012 Java/Spring Boot workers
-013 Worker testing
-014 Worker lifecycle, concurrency and backpressure
+**001 — Onde esses conceitos vivem dentro do Camunda 8**
 
-## Module 4 — Distributed systems
-015 Idempotency and duplicate delivery
-016 Consistency and transactional boundaries
-017 Outbox/inbox and integration patterns
-018 Kafka integration
-019 REST and connectors
-020 Timeouts, retries and compensation
+Sequência interna, nesta ordem: BPMN no runtime → Self-Managed → Zeebe → Gateway → Broker →
+Estado de execução → Job → Worker → aplicação cliente → componentes operacionais e UI →
+ambiente local real → Docker Compose → H2 → modelo Camunda 7 → 8.
 
-## Module 5 — Human workflow
-021 User tasks and Tasklist
-022 Assignment, authorization and human latency
+Requer: Módulo 0. A Lesson 001 consome o vocabulário da 000 e não o repete.
 
-## Module 6 — Platform and operations
-023 Observability
-024 Operate and troubleshooting
-025 Scaling and partitioning
-026 Security and Identity
-027 Kubernetes/OpenShift/AWS
-028 Production readiness
+**Entregável:** explicar onde cada conceito vive no Camunda 8, com o que cada componente
+responde e o que ele **não** faz.
 
-## Module 7 — Architecture and leadership
-029 Camunda 7 → 8 migration
-030 Orchestration vs choreography
-031 Production architecture case
-032 Governance and architecture decisions
+Observação de escopo: a Lesson 001 **não** é "a lesson de comparação C7 → 8". É a lesson de
+**onde o Camunda 8 executa**, e a comparação é sua última seção, quando já existe algo concreto
+para comparar.
 
-## Module 8 — Capstone and interview
-033 Banking loan-origination capstone
-034 Developer Lead architecture review
-035 Troubleshooting simulation
-036 Developer Lead interview simulation
+| Lesson | Tópico | Status |
+| --- | --- | --- |
+| 001 | Onde esses conceitos vivem dentro do Camunda 8 | `ready` |
+| 002 | Modelo de execução do Zeebe | planejada |
+| 003 | Execução BPMN | planejada |
+| 004 | Instâncias de processo e variáveis | planejada |
+| 005 | Jobs e job workers | planejada |
+| 006 | Retries, incidentes e recuperação | planejada |
 
-## Course rule
+## Módulo 2 — BPMN e comportamento de workflow
 
-The repository structure is established first. Implementation follows the learning sequence.
+007 Mensagens e correlação · 008 Timers · 009 Erros e boundary events · 010 Subprocessos e call
+activities · 011 Padrões avançados de BPMN
+
+## Módulo 3 — Java/Spring Boot
+
+012 Workers com Java/Spring Boot · 013 Testes de worker · 014 Ciclo de vida do worker,
+concorrência e backpressure
+
+## Módulo 4 — Sistemas distribuídos
+
+015 Idempotência e entrega duplicada · 016 Consistência e fronteiras transacionais · 017
+Outbox/inbox e padrões de integração · 018 Integração com Kafka · 019 REST e connectors · 020
+Timeouts, retries e compensação
+
+## Módulo 5 — Workflow humano
+
+021 User tasks e Tasklist · 022 Atribuição, autorização e latência humana
+
+## Módulo 6 — Plataforma e operações
+
+023 Observabilidade · 024 Operate e troubleshooting · 025 Escala e particionamento · 026 Segurança
+e Identity · 027 Kubernetes/OpenShift/AWS · 028 Prontidão para produção
+
+## Módulo 7 — Arquitetura e liderança
+
+029 Migração Camunda 7 → 8 · 030 Orquestração vs coreografia · 031 Caso de arquitetura de
+produção · 032 Governança e decisões de arquitetura
+
+## Módulo 8 — Capstone e entrevista
+
+033 Capstone de originação de empréstimo bancário · 034 Revisão de arquitetura como Developer
+Lead · 035 Simulação de troubleshooting · 036 Simulação de entrevista de Developer Lead
+
+## Regra do curso
+
+A estrutura do repositório é estabelecida primeiro. A implementação segue a sequência de
+aprendizado.
+
+**A lesson nunca implementa uma lição futura.** Onde uma lesson encontra uma lacuna, ela registra
+a lacuna e deixa a implementação para a lesson que vai ensiná-la. `.mise.toml` fica com
+`[tools]` vazio até a primeira lesson que realmente precise de JVM — ver
+[ADR-0002](adr/0002-camunda-8-version-pin.md).

@@ -1,31 +1,64 @@
-# ADR-0002 — Camunda 8 Version Pin
+# ADR-0002 — Pin de versão do Camunda 8
 
 ## Status
-Accepted
+Aceito
 
-Date: 2026-09-29
+Data: 2026-09-29
 
-## Context
-The learning lab documents and exercises a specific Camunda 8 version. The platform moves fast enough that an unpinned course silently rots: behaviour, configuration and APIs change between minor releases, and the lab's stated facts would stop matching the software the learner actually runs.
+## Contexto
+O laboratório documenta e exercita uma versão específica do Camunda 8. A plataforma se move rápido o
+suficiente para que um curso sem pin se degrada em silêncio: comportamento, configuração e
+APIs mudam entre releases minor, e os fatos afirmados no laboratório deixariam de corresponder ao
+software que o aluno realmente executa.
 
-As of 2026-09-29, the official documentation exposes 8.9 as the current stable version, 8.10 as unreleased, and 8.6 and earlier as unmaintained. Moving from 8.9 to 8.10 involves changes that are already announced:
+Em 2026-09-29, a documentação oficial expõe a **8.9** como versão estável atual, a 8.10 como não
+lançada, e 8.6 e anteriores como não mantidas. Passar de 8.9 para 8.10 envolve mudanças já
+anunciadas:
 
-- The Camunda Java Client replaced the Zeebe Java Client in 8.8; the Zeebe Java Client is removed in 8.10. The Camunda Java Client defaults to REST, with gRPC configurable.
-- The `zeebe.client.worker.job.activated` and `zeebe.client.worker.job.handled` metrics are deprecated and are removed in 8.10, replaced by `camunda.client.worker.job.*`.
-- From patch release 8.9.12, Camunda no longer produces the `camunda/zeebe`, `camunda/operate` and `camunda/tasklist` Docker images; the unified `camunda/camunda` image is used instead.
-- From 8.9, the Helm charts no longer deploy infrastructure sub-charts by default, and in 8.10 those sub-charts are removed.
+- O **Camunda Java Client** substituiu o Zeebe Java Client na 8.8; o Zeebe Java Client é removido na
+  8.10. O Camunda Java Client usa REST por padrão, com gRPC configurável.
+- As métricas `zeebe.client.worker.job.activated` e `zeebe.client.worker.job.handled` estão
+  **depreciadas** e são removidas na 8.10, substituídas por `camunda.client.worker.job.*`.
+- A partir do patch **8.9.12**, a Camunda deixou de produzir as imagens Docker `camunda/zeebe`,
+  `camunda/operate` e `camunda/tasklist`; passa a ser usada a imagem unificada `camunda/camunda`.
+- A partir da 8.9, os Helm charts não implantam mais sub-charts de infraestrutura por padrão, e na
+  8.10 esses sub-charts são removidos.
 
-The repository engineering rules require Java 21 or later, and the Camunda 8 Orchestration Cluster components are documented as requiring OpenJDK 21–25.
+As regras de engenharia do repositório exigem Java 21 ou superior, e os componentes do Orchestration
+Cluster do Camunda 8 são documentados como exigindo **OpenJDK 21–25**.
 
-## Decision
-The learning lab pins the course to **Camunda 8.9.x**.
+## Decisão
+O laboratório fixa o curso em **Camunda 8.9.x**.
 
-- Every version-sensitive claim produced by the lab is labelled with the documentation version it was verified against, and that label is `8.9` unless stated otherwise.
-- The local environment used to produce observed evidence is a 8.9.x distribution, started explicitly at that version.
-- Upgrading the course to 8.10 is deferred, not scheduled. When it happens it is a deliberate increment, not a side effect, and the announced breaking changes above are treated as teaching material rather than as incidental breakage.
+- Toda afirmação sensível a versão produzida pelo laboratório é rotulada com a versão da
+  documentação contra a qual foi verificada, e esse rótulo é `8.9`, salvo indicação em contrário.
+- O ambiente local usado para produzir evidência observada é uma distribuição 8.9.x, iniciada
+  explicitamente naquela versão.
+- A atualização para a 8.10 está **adiada, não agendada**. Quando acontecer, será um incremento
+  deliberado, e não um efeito colateral — e as mudanças incompatíveis acima serão tratadas como
+  material didático, não como quebra incidental.
 
-## Consequences
-- Facts stated in the lab can be checked against a specific, currently supported documentation version, and a reader can tell which version a claim belongs to.
-- The 8.10 upgrade has a defined destination. It will need its own scope: the Java client replacement, the renamed worker metrics, and the Helm infrastructure-sub-chart removal are three distinct topics, not one.
-- Lessons written against 8.9 will need review when the pin moves. This is a known, accepted cost of not moving earlier.
-- Any statement in the lab that is not tied to a version must be labelled as interpretation rather than presented as Camunda behaviour.
+## Consequências
+
+- Os fatos afirmados no laboratório podem ser conferidos contra uma versão de documentação
+  específica e atualmente suportada, e o leitor consegue dizer a qual versão cada afirmação pertence.
+- A atualização para a 8.10 tem destino definido. Vai precisar de escopo próprio: a troca do Java
+  client, as métricas de worker renomeadas e a remoção dos sub-charts de infraestrutura no Helm são
+  **três tópicos distintos**, não um.
+- Lessons escritas contra a 8.9 precisarão de revisão quando o pin se mover. Esse é um custo
+  conhecido e aceito de não se mover antes.
+- Qualquer afirmação do laboratório que **não** esteja presa a uma versão deve ser rotulada como
+  interpretação, e não apresentada como comportamento do Camunda.
+
+## Nota de verificação
+
+Uma afirmação deste ADR que **não** foi verificada por fetch e foi corrigida: a URL das release
+notes foi inicialmente registrada como `docs.camunda.io/docs/release-notes/890/`, que retorna
+**404**. A URL real é
+`docs.camunda.io/docs/reference/announcements-release-notes/890/890-release-notes`. O padrão de URL
+foi inferido de uma página vizinha, e a inferência estava errada — ver
+[evidence da Lesson 001 §9, F5](../lessons/001-camunda7-8-mental-model/evidence.md).
+
+Consequência para este ADR: a lista de mudanças de 8.10 acima vem das **release announcements e notas
+de release indexadas**, e as afirmações de URL devem ser rechecadas por fetch antes de serem
+citadas como verificadas.

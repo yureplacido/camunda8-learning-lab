@@ -1,19 +1,25 @@
-# Domain
+# Domínio
 
-The lab models a simplified banking loan-origination process.
+O laboratório modela um processo simplificado de originação de crédito bancário.
 
-## Core flow
-Customer → Loan Application → Credit Analysis → Fraud Analysis → Approval → Contract → Disbursement
+## Fluxo principal
 
-## Purpose
-The domain is intentionally simplified. Its value is in creating realistic workflow and distributed-systems problems:
-- synchronous and asynchronous integrations;
-- human and automated steps;
-- retries and failures;
-- correlation;
-- idempotency;
+Cliente → Pedido de Crédito → Análise de Crédito → Análise de Fraude → Aprovação → Contrato →
+Desembolso
+
+## Propósito
+
+O domínio é intencionalmente simples. O valor dele está em criar problemas de workflow e de
+sistemas distribuídos realistas:
+
+- integrações síncronas e assíncronas;
+- passos humanos e automatizados;
+- retries e falhas;
+- correlação;
+- idempotência;
 - timeouts;
-- compensation;
-- observability.
+- compensação;
+- observabilidade.
 
-The domain should remain simple enough that Camunda concepts remain the focus.
+O domínio deve permanecer simples o bastante para que os conceitos da Camunda continuem sendo o
+foco.

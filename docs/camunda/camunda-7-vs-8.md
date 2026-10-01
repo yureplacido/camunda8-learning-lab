@@ -1,196 +1,284 @@
 # Camunda 7 vs Camunda 8
 
-Verified against: **Camunda 8.9** documentation (see [ADR-0002](../../docs/adr/0002-camunda-8-version-pin.md)).
-Observed evidence for every claim marked **Observed** is in
-[Lesson 001 evidence](../lessons/001-camunda7-8-mental-model/evidence.md).
+Verificado contra: documentação do **Camunda 8.9** (ver
+[ADR-0002](../adr/0002-camunda-8-version-pin.md)).
+Evidência observada de toda afirmação marcada **Observado** está em
+[evidence da Lesson 001](../lessons/001-camunda7-8-mental-model/evidence.md).
 
-This note separates three things on purpose, because mixing them is the main source of
-wrong answers in interviews:
+Esta nota separa três coisas de propósito, porque misturá-las é a principal fonte de resposta errada
+em entrevista:
 
-- **Fact** — stated by official documentation, with the version it belongs to.
-- **Observed** — actually seen running a 8.9.22 Orchestration Cluster on 2026-09-29.
-- **Interpretation** — the author's reasoning. Not Camunda behaviour.
+- **Fato** — afirmación da documentação oficial, com a versão a que pertence e a URL verificada.
+- **Observado** — realmente visto em execução num Orchestration Cluster 8.9.22 em 2026-09-29.
+- **Interpretação** — raciocínio do autor. Não é comportamento da Camunda.
 
-## 1. The one-sentence difference
+---
 
-Camunda 7 is a **database-backed workflow engine**: the database is the engine's state.
-Camunda 8 is a **log-backed distributed engine**: an append-only replicated log is the
-state, and the database was demoted to an optional, rebuildable projection.
+## 1. A diferença em uma frase
 
-Everything else in this document is a consequence of that single difference.
+> **A aplicação deixa de compartilhar uma fronteira transacional ACID com o engine de
+> orquestração.**
 
-## 2. Architecture
+Tudo o mais neste documento é consequência dessa única mudança.
 
-### Camunda 7 (Fact)
+E é aqui que a maioria dos materiais erra. A fórmula "o 7 usa banco, o 8 usa log" é verdadeira e
+**insuficiente**: ela descreve a consequência visível e omite a causa. Quem aprende só a frase decora
+a frase e continua incapaz de responder "onde entra a minha aplicação?".
 
-A single Process Engine instance, deployed as a library inside your application or as a
-shared engine, connects with JDBC to **one** database. The engine writes its runtime state
-to `ACT_RU_*` tables, its definitions to `ACT_RE_*` tables, and history to `ACT_HI_*`
-tables **in the same database**.
+A sequência real é:
 
-API, REST, Tasklist, Cockpit and Optimize are all consumers of that same database. There
-is no separate replication mechanism for engine state.
+```mermaid
+flowchart LR
+    A["Engine como biblioteca<br/>dentro da sua aplicação"] -->|"mesma transação"| B["Efeito colateral e<br/>mudança de estado<br/>confirmam juntos"]
+    C["Engine como serviço<br/>atrás da rede"] -->|"três eventos separados,<br/>três contextos transacionais"| D["Job criado no log →<br/>efeito colateral na sua txn →<br/>conclusão em outra mensagem"]
+```
 
-### Camunda 8 (Fact + Observed)
+No Camunda 7, criar o Job, executá-lo e persistir o resultado podiam acontecer dentro de uma única
+transação. No Camunda 8, são três eventos distintos, em três contextos transacionais distintos, e
+**não existe como envolvê-los em um commit só** — porque não existe um banco só, e porque não
+acontecem no mesmo processo.
 
-The Orchestration Cluster is a set of distinct components:
+O "banco virou log" é o que essa mudança **produz**. Não é a mudança.
 
-| Component | Role |
+---
+
+## 2. Arquitetura
+
+### Camunda 7 (Fato)
+
+Uma instância do Process Engine, implantada como biblioteca dentro da sua aplicação ou como engine
+compartilhado, conecta via JDBC a **um** banco. O engine grava seu estado de runtime em tabelas
+`ACT_RU_*`, suas definições em `ACT_RE_*`, e o histórico em `ACT_HI_*` — **no mesmo banco**.
+
+API, REST, Tasklist, Cockpit e Optimize são todos consumidores desse mesmo banco. Não há mecanismo
+separado de replicação do estado do engine.
+
+### Camunda 8 (Fato + Observado)
+
+O Orchestration Cluster tem **cinco** componentes lógicos:
+
+| Componente lógico | Papel |
 | --- | --- |
-| **Zeebe broker** | Runs the process instances. Owns execution state. Partitions + replicates with Raft. |
-| **Gateway** | gRPC/REST entry point. Proxies commands to the correct partition. Stateless. |
-| **Operate** | Monitoring and incident management. Reads a projection, never writes state. |
-| **Tasklist** | Human tasks. Reads a projection, never writes state. |
-| **Connectors** | Outbound integration to external systems via job workers. |
-| **Job worker** | Your code. Polls for work, does the work, completes or fails the job. |
+| **Broker** | Executa as instâncias. Guarda o estado de execução. Particiona e replica com Raft. |
+| **Gateway** | Ponto de entrada REST/gRPC. Proxy dos comandos para a partição correta. *Stateless*. |
+| **Operate** | Monitoramento e incidentes. Lê uma projeção, nunca escreve estado. |
+| **Tasklist** | Tarefas humanas. Lê uma projeção, nunca escreve estado. |
+| **Admin** | Autenticação e autorização integradas. |
 
-**Observed** in this lab's environment:
+**Fato (8.9).** A documentação oficial lista **cinco** entradas, mas outras: `Zeebe`, `Operate`,
+`Tasklist`, `Admin` e `APIs`. A tabela acima substitui `Zeebe` por `Gateway` + `Broker` e remove
+`APIs`. Mesmo total, listas diferentes. Ver
+[mapa de componentes](camunda-8-local-components.md).
 
-- The broker is reached through the gateway; `/v2/topology` shows a single-node cluster
-  with one partition acting as `leader`, reported `healthy`, version `8.9.22`.
-- The Zeebe process opened **no** database connection at all — no listener on 5432, 3306,
-  1521, 27017 or 1433. It only talks to itself on `26501` and to its sibling containers.
-- Execution state exists on disk as a Raft log plus RocksDB snapshots
-  (`raft-partition/partitions/1/snapshots/...`, `*.sst`, `MANIFEST-*`, `zeebe.metadata`).
+**Fora do cluster**, e portanto **fora** da contagem acima:
 
-## 3. Storage — the distinction that actually matters
+| Componente | Onde roda |
+| --- | --- |
+| **Connectors** | Container separado, `camunda/connectors-bundle:8.9.14` |
+| **Job worker** | **Seu código**, em aplicação sua, em processo separado |
 
-This is where most Camunda 7 → 8 mental models break, so it is worth being precise.
+**Observado.** Uma advertência que quase todo material erra: esses cinco componentes lógicos
+**não são cinco containers**. Desde o patch 8.9.12 a Camunda deixou de produzir as imagens
+`camunda/zeebe`, `camunda/operate` e `camunda/tasklist`; usa a imagem unificada `camunda/camunda`.
+Aqui, `docker exec orchestration ps` mostra **um único** processo Java, `PID 1`.
 
-### Camunda 7 (Fact)
+No ambiente deste laboratório:
 
-One database, two concerns mixed:
+- o broker é alcançado pelo gateway; `/v2/topology` mostra um cluster de nó único com uma partição
+  `leader`, `healthy`, versão `8.9.22`;
+- o processo **não** abriu conexão com banco externo algum — 5432, 3306, 1521, 27017, 1433;
+- o estado de execução existe em disco como um log Raft mais snapshots, em
+  `/usr/local/camunda/data/raft-partition/partitions/1/`.
 
-- **runtime/authoritative state** — `ACT_RU_*`
-- **history/operational data** — `ACT_HI_*`
+Ver [mapa de componentes](camunda-8-local-components.md).
 
-If the database is unavailable, the engine cannot run **and** you cannot report on what
-ran. The same outage hits both concerns simultaneously.
+---
 
-### Camunda 8 (Fact + Observed)
+## 3. Armazenamento
 
-Two stores with different jobs, and in this topology two different Docker volumes:
+### Camunda 7 (Fato)
 
-| | Camunda 7 | Camunda 8 (observed) |
+Um banco, duas preocupações misturadas:
+
+- **estado de runtime/autoritativo** — `ACT_RU_*`
+- **histórico/dados operacionais** — `ACT_HI_*`
+
+Se o banco estiver indisponível, o engine não roda **e** você não consegue reportar o que rodou. A
+mesma indisponibilidade acerta as duas preocupações ao mesmo tempo.
+
+### Camunda 8 (Fato + Observado)
+
+Dois armazenamentos com trabalhos diferentes, e nesta topologia dois volumes Docker diferentes:
+
+| | Camunda 7 | Camunda 8 (observado) |
 | --- | --- | --- |
-| Authoritative state | `ACT_RU_*` tables, via JDBC | Raft log + RocksDB snapshots |
-| Failure when store is down | Engine cannot run | Broker cannot elect / cannot run |
-| Operational/history data | `ACT_HI_*` tables, same DB | RDBMS exporter projection |
-| Who writes it | The engine itself | An **exporter**, one-way, async |
-| Can you lose it? | No — it *is* the system of record | Yes — it can be **rebuilt** from the log |
+| Estado autoritativo | Tabelas `ACT_RU_*`, via JDBC | Log Raft + snapshots |
+| O que quebra se o armazenamento cai | O engine não roda | O broker não elege líder / não roda |
+| Dados operacionais/histórico | Tabelas `ACT_HI_*`, mesmo banco | Projeção do RDBMS exporter |
+| Quem escreve | O próprio engine | Um **exporter**, mão única, assíncrono |
+| Pode ser perdido? | Não — *é* o registro do sistema | Sim — pode ser **reconstruído** do log |
 
-**Observed** in the lab's H2 configuration (`camunda.data.secondary-storage`):
+**Fato (8.9).** A doc do RDBMS Exporter, verbatim: *"The RDBMS Exporter consumes records from the log
+stream, transforming relevant records and writing them to secondary storage database tables. Operate
+and Tasklist query this secondary storage data through the Orchestration Cluster APIs."*
 
-```
-io.camunda.application.commons.rdbms.MyBatisConfiguration - Detected databaseId: h2
-io.camunda.zeebe.broker.system - Provide ExporterDescriptor for RDBMS Exporter
-io.camunda.exporter.rdbms.RdbmsExporter - [RDBMS Exporter P1] RdbmsExporter created with
-    Configuration: flushInterval=PT0.5S, queueSize=1000
-io.camunda.exporter.rdbms.RdbmsExporter - [RDBMS Exporter P1] Exporter opened with
-    last exported position -1
-```
+Três coisas nessa frase: o fluxo **vem do log**; o destino são **tabelas de secondary storage**; e
+Operate e Tasklist **consultam** — não possuem nem governam.
 
-And on disk, two separate volumes:
+**Observado.** Dois volumes separados, com conteúdos que não se misturam:
 
-- volume `camunda-89_camunda` → `/usr/local/camunda/data/raft-partition` (execution state)
+- volume `camunda-89_camunda` → `/usr/local/camunda/data/raft-partition` (estado de execução)
 - volume `camunda-89_camunda-data` → `/usr/local/camunda/camunda-data/h2db.mv.db` (H2)
 
-> **Correction worth remembering.** A very common and very wrong summary is "Camunda 8 has
-> no database". In the observed 8.9.22 environment there *is* a relational database — an
-> H2 file. What is wrong is not the database, it is the *role*: H2 is **secondary
-> storage**, written by an exporter, and losing it loses projections, not process state.
-> The accurate statement is *"Camunda 8 does not use a database as its source of truth"*.
+> **Correção que vale memorizar.** Um resumo muito comum e muito errado é "Camunda 8 não tem banco".
+> No ambiente 8.9.22 observado há *sim* um banco relacional — um arquivo H2, e ele é monitorado como
+> componente de saúde (`rdbmsStatus.database: "H2"`). O que está errado não é o banco, é o **papel**:
+> H2 é *secondary storage*, escrito por um exporter, e perdê-lo perde projeções, não estado de
+> processo. A afirmação precisa é: *"Camunda 8 não usa banco como fonte da verdade"*.
+>
+> Uma segunda correção, sobre nomes de arquivo: uma versão anterior deste documento afirmava que o
+> primary storage continha `MANIFEST-*` e `zeebe.metadata`. O `ls` do diretório mostra que **nenhum
+> dos dois existe**. A afirmação vinha de memória de documentação, não de observação.
 
-## 4. Scaling and availability
+---
 
-| | Camunda 7 | Camunda 8 |
-| --- | --- | --- |
-| Scale up | More engine instances, **but** they contend on one database | More partitions, replicated by Raft |
-| Scale out | Database replication is the scaling story | Add brokers/partitions; replication is built in |
-| High availability | Database HA + app HA | Raft replication across brokers |
-| Concurrency limit | Effectively your database's capacity | Partition count (1 per partition) |
-
-**Interpretation.** In Camunda 7, adding engine instances does not buy throughput if they
-share one database — you mostly buy redundancy, and you add contention. In Camunda 8 the
-unit of parallelism *is* the partition, and replication comes with it. The operational
-question moves from "is the database healthy" to "are all partitions and their leaders
-healthy", which is exactly what `/v2/topology` reports.
-
-## 5. Integration and scale-out of applications
+## 4. Escala e disponibilidade
 
 | | Camunda 7 | Camunda 8 |
 | --- | --- | --- |
-| Work execution | The engine calls **you**, inside the same JVM | **You** pull work, out of process |
-| Coupling | In-process client, same trust boundary | gRPC job protocol, separate trust boundary |
-| Failure unit | The engine's transaction | The **job** |
+| Escalar para cima | Mais instâncias do engine, **mas** disputam um banco | Mais partições, replicadas por Raft |
+| Escalar para fora | Replicação do banco é a história de escala | Adicionar brokers/partições; replicação já vem embutida |
+| Alta disponibilidade | HA do banco + HA da aplicação | Replicação Raft entre brokers |
+| Limite de concorrência | Efetivamente a capacidade do seu banco | Contagem de partições (1 por partição) |
 
-**Observed** — this is a direct consequence of the fact that the engine no longer lives in
-your JVM. In Camunda 7 a job is a row processed inside your transaction. In Camunda 8 a
-job is a message on a partition, and "the work failed" becomes a *durable, retryable
-event* rather than a stack trace inside the engine.
+**Interpretação.** No Camunda 7, adicionar instâncias do engine não compra vazão se elas compartilham
+um banco — você compra sobretudo redundância, e adiciona contenção. No Camunda 8 a unidade de
+paralelismo *é* a partição, e a replicação vem junto. A pergunta operacional muda de "o banco está
+saudável" para "todas as partições e seus líderes estão saudáveis" — que é exatamente o que
+`/v2/topology` reporta.
 
-> This is why the lab's later lessons on retries, idempotency and incidents only make
-> sense *after* this one. There is no `try/catch` boundary to protect in Camunda 8; the
-> system is built to assume the boundary will be crossed more than once.
+**Observado.** O cluster reporta duas estratégias de roteamento independentes:
+`requestHandling: AllPartitions` e `messageCorrelation: HashMod`. Consequência prática: os eventos de
+uma instância caem sempre na mesma partição, e **mudar a contagem de partições re-distribui todas as
+*correlation keys***. Por isso a contagem de partições é uma decisão de arquitetura, e não um botão
+de performance.
+
+---
+
+## 5. Integração e execução de trabalho
+
+| | Camunda 7 | Camunda 8 |
+| --- | --- | --- |
+| Execução do trabalho | O engine chama **você**, dentro da mesma JVM | **Você** puxa trabalho, fora do processo |
+| Acoplamento | Cliente in-process, mesma fronteira de confiança | Protocolo gRPC de job, fronteira de confiança separada |
+| Unidade de falha | A transação do engine | O **job** |
+
+**Fato (8.9).** A doc de arquitetura do Zeebe: *"The Zeebe Broker is the distributed workflow engine
+that tracks the state of active process instances… no application business logic lives in the
+broker."* E: *"A job worker is a Zeebe client."*
+
+**Interpretação.** No Camunda 7, um job é uma linha processada dentro da sua transação. No Camunda 8,
+um job é um registro no log, e "o trabalho falhou" se torna um *evento durável e retentável*, e não
+um stack trace dentro do engine.
+
+A consequência prática é a **idempotência obrigatória**: se o efeito colateral happen e a conclusão
+falhar, o job volta. Não há fronteira transacional que proteja esse caso, porque a fronteira virou
+rede. E não é um cenário de canto — at-least-once é o modo normal de operação.
+
+> É por isso que as lessons posteriores do laboratório, sobre retries, idempotência e incidentes, só
+> fazem sentido **depois** desta. No Camunda 8 não existe fronteira de `try/catch` que proteja, e o
+> sistema é construído assumindo que a fronteira será cruzada mais de uma vez.
+
+---
 
 ## 6. Multi-tenancy
 
-| | Camunda 7 | Camunda 8 (Fact, 8.9) |
+| | Camunda 7 | Camunda 8 (Fato, 8.9) |
 | --- | --- | --- |
-| Mechanism | One **engine instance per tenant** | A **tenant identifier** on data |
-| Cost per tenant | New engine, new datasource, new deployment | A logical boundary, shared cluster |
-| Isolation | Physical process/DB isolation | Logical, checked at runtime |
+| Mecanismo | Uma **instância de engine por tenant** | Um **identificador de tenant** nos dados |
+| Custo por tenant | Engine nova, datasource novo, deployment novo | Uma fronteira lógica, cluster compartilhado |
+| Isolamento | Isolamento físico de processo/banco | Lógico, verificado em runtime |
 
-**Fact (8.9).** Multi-tenancy in Camunda 8 is *logical* tenancy, available on both SaaS
-and Self-Managed. A tenant is created through the Orchestration Cluster API
-(`POST /v2/tenants`, added in 8.8) and identified by a `tenantId`. Multi-tenancy is
-*enabled* by default, but multi-tenancy **checks are disabled by default**, and all data
-maps to the `<default>` tenant until checks are enabled.
+**Fato (8.9).** Multi-tenancy no Camunda 8 é *logical tenancy*, disponível em SaaS e Self-Managed. Um
+tenant é criado pela API do Orchestration Cluster (`POST /v2/tenants`, adicionado na 8.8) e
+identificado por um `tenantId`. A multi-tenancy está *habilitada* por padrão, mas as **verificações**
+de multi-tenancy estão **desabilitadas** por padrão, e todos os dados mapeiam para o tenant
+`<default>` até que as verificações sejam habilitadas.
 
-**Interpretation.** This is a genuine trade-off, not a pure win. C7's per-tenant engine is
-expensive but the isolation is hard. C8's logical tenancy is cheap to provision, but the
-isolation now depends on every call site passing the right `tenantId` correctly — a
-missing or wrong identifier is a data-exposure bug, not a crash. If you migrate C7
-tenancy to C8 you must decide, per tenant, whether "logically isolated" is good enough.
+**Interpretação.** Este é um trade-off real, não uma vitória pura. O tenancy por engine do C7 é
+caro, mas o isolamento é rígido. O tenancy lógico do C8 é barato de provisionar, mas o isolamento
+passa a depender de cada call site passar o `tenantId` certo — um identificador ausente ou errado é um
+bug de **exposição de dados**, não um crash. Se você migrar tenancy de C7 para C8, precisa decidir, por
+tenant, se "isolado logicamente" basta.
 
-## 7. What did **not** change
+---
 
-- BPMN is still the modelling language, and most of the vocabulary carries over:
-  process definition, process instance, task, user task, service task, incident.
-- You still do not write SQL against engine tables, in either version.
-- Operate remains the monitoring and incident tool. Its role is more central in C8, not
-  less, precisely because the engine is distributed.
+## 7. O que **não** mudou
 
-## 8. Consequences for a migration
+- BPMN continua sendo a linguagem de modelagem, e a maior parte do vocabulário atravessa: *process
+  definition*, *process instance*, *task*, *user task*, *service task*, incidente.
+- Você continua **não** escrevendo SQL contra tabelas do engine, em nenhuma das duas versões.
+- Operate continua sendo a ferramenta de monitoramento e incidentes. O papel dele é **mais** central
+  no C8, não menos — precisamente porque o engine é distribuído.
 
-**Interpretation**, derived from the points above:
+---
 
-1. **Your database problem changes shape.** If you chose Camunda 7 to reuse an existing
-   operational database, that is no longer the model. You are choosing a broker topology
-   plus an optional exporter target.
-2. **Availability reviews change questions.** "Is the DB up" is replaced by "is the leader
-   of every partition healthy, and is my exporter keeping up".
-3. **Scaling reviews change unit.** Partitions, not engine instances.
-4. **Failure handling becomes first-class design** instead of an error-handling detail,
-   because the work boundary is now a network boundary.
-5. **Operations tooling moves into the product.** Operate/Tasklist are the primary
-   interfaces, so enablement and RBAC become a migration workstream.
+## 8. Consequências para uma migração
 
-## 9. Interview traps
+**Interpretação**, derivada dos pontos acima:
 
-- "Camunda 8 has no database" — **false.** Secondary storage exists; it is not the source
-  of truth. See section 3.
-- "Camunda 8 is stateless" — **false.** The broker is explicitly stateful; the *gateway*
-  is the stateless part.
-- "Camunda 8 replaced the database" — **half true.** It replaced the database as the
-  *system of record*, and moved SQL to a derived, rebuildable role.
-- "Camunda 8 calls your code" — **false.** Your code calls the gateway and pulls jobs.
-- "Camunda 7 and 8 differ only in deployment" — **false.** The persistence model, the
-  execution boundary and the scaling unit all changed.
+1. **Seu problema de banco muda de forma.** Se você escolheu o Camunda 7 para reaproveitar um banco
+   operacional existente, esse não é mais o modelo. Você está escolhendo uma topologia de brokers
+   mais um alvo de exporter opcional.
+2. **Revisões de disponibilidade mudam a pergunta.** "O banco está no ar" é substituído por "o líder
+   de cada partição está saudável, e meu exporter está em dia".
+3. **Revisões de escala mudam a unidade.** Partições, não instâncias de engine.
+4. **Tratamento de falha vira design de primeira classe**, e não detalhe de tratamento de erro,
+   porque a fronteira de trabalho agora é uma fronteira de rede.
+5. **Backup e restore são duas operações.** Restaurar só o banco produz um cluster cujas projeções
+   discordam do log. Verificar por que o que importa é o estado de execução, e não a projeção.
+6. **As ferramentas de operação entram no produto.** Operate e Tasklist são as interfaces primárias,
+   então habilitação e RBAC viram um workstream de migração.
 
-## Related
+---
 
-- [Lesson 001 — Camunda 7 → 8 Mental Model](../lessons/001-camunda7-8-mental-model/lesson.md)
-- [Lesson 001 evidence](../lessons/001-camunda7-8-mental-model/evidence.md)
-- [ADR-0002 — version pin](../adr/0002-camunda-8-version-pin.md)
-- [C4 context](../architecture/c4/001-context.md) · [C4 container](../architecture/c4/001-container.md)
+## 9. Armadilhas de entrevista
+
+| Afirmação | Veredito | Por quê |
+| --- | --- | --- |
+| "Camunda 8 não tem banco" | **Falso** | Secondary storage existe; não é a fonte da verdade. Ver §3 |
+| "Camunda 8 é stateless" | **Falso** | O broker é explicitamente stateful; o **Gateway** é a parte stateless |
+| "Camunda 8 substituiu o banco" | **Meia verdade** | Substituiu o banco como *registro do sistema*, e moveu SQL para papel derivado e reconstruível |
+| "A única diferença é o deployment" | **Falso** | O modelo de persistência, a fronteira de execução e a unidade de escala mudaram |
+| "O Camunda 8 chama seu código" | **Falso** | Seu código fala com o gateway e puxa jobs. E *"no application business logic lives in the broker"* |
+| "O Camunda 8 tem N componentes = N containers" | **Falso** | No 8.9 são 5 componentes lógicos em **1** container. Ver §2 |
+| "Zeebe é o engine que guarda o estado e recebe comandos" | **Impreciso** | São dois componentes: o **Broker** guarda o estado, o **Gateway** recebe. Ver §2 |
+| "O Camunda 8 Run é o mesmo que Self-Managed" | **Falso** | Distribuições diferentes. Ver [Lesson 001 §2](../lessons/001-camunda7-8-mental-model/lesson.md) |
+
+---
+
+## Relacionados
+
+- [Lesson 001 — Onde esses conceitos vivem dentro do Camunda 8](../lessons/001-camunda7-8-mental-model/lesson.md)
+- [evidence da Lesson 001](../lessons/001-camunda7-8-mental-model/evidence.md)
+- [Mapa de componentes do laboratório](camunda-8-local-components.md)
+- [ADR-0002 — pin de versão](../adr/0002-camunda-8-version-pin.md)
+- [C4 Context](../architecture/c4/001-context.md) · [C4 Container](../architecture/c4/001-container.md)
+
+---
+
+## Diagram Review
+
+- [x] Sintaxe Mermaid validada por `docs/validate-mermaid.sh`
+- [x] Diagrama renderiza
+- [x] Nível arquitetural — diagrama de **contraste C7 → C8**, não C4. Rotulado como tal no texto
+- [x] Componente lógico e container físico não estão misturados
+- [x] Todos os nós têm responsabilidade definida no texto
+- [x] Relações válidas e com direção correta
+- [x] Sem nós órfãos
+- [x] Sem componente fictício
+- [x] Sem contradição com o texto da nota
+- [x] Sem contradição com o mapa de componentes nem com a Lesson 001
+- [x] Alegações sensíveis a versão verificadas — ver tabela de fontes na
+      [evidence da Lesson 001](../lessons/001-camunda7-8-mental-model/evidence.md)
+- [x] Rótulos e documentação em PT-BR

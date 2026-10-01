@@ -1,73 +1,93 @@
-# SPEC-000 — Camunda and BPMN Concepts
+# SPEC-000 — Conceitos de Camunda e BPMN
 
-Status: accepted
-Date: 2026-09-29
+Status: aceito
+Data: 2026-09-29
 
-## Goal
-Remove the implicit prerequisites of Lesson 001 by documenting, in one place and without
-assuming prior knowledge, what a workflow engine is, what BPMN is, what Camunda is, what
-its components are and why each one must exist.
+## Objetivo
 
-## Why this SPEC exists
-`docs/learning-roadmap.md` began Module 1 with `001 Camunda 7 → 8 mental model` and
-declared the module deliverable as "explain how a BPMN process becomes distributed
-executable work". That deliverable presupposes vocabulary the course never established:
-what BPMN is, what a workflow engine is, and the difference between a process
-*definition* and a process *instance*.
+Estabelcer o vocabulário que o resto do curso pressupõe, em um só lugar e sem assumir
+conhecimento prévio: o que é um workflow engine, o que é BPMN, o que é Camunda, e a cadeia
+*service task* → Job → *job worker*.
 
-Lesson 001 was therefore written at a level that made its own reasoning unreachable. This
-SPEC creates the missing layer as Lesson 000, so Lesson 001 becomes a comparison instead
-of an introduction to an unfamiliar vocabulary.
+## Por que este SPEC existe
 
-## Scope
-- The causal chain: problem → workflow engine → BPMN notation → vocabulary → Camunda →
-  Camunda 8 components → the log.
-- Every Camunda 8 component explained by the constraint that forces it to exist, not
-  listed.
-- The core vocabulary that later lessons assume, including the
-  service task → job → job worker chain.
-- Primary storage versus secondary storage, using Camunda's own terminology.
-- Each concept anchored in the local 8.9.22 cluster that is already running.
+`docs/learning-roadmap.md` começava o Módulo 1 em `001 — modelo mental Camunda 7 → 8` e declarava
+o entregável do módulo como "explicar como um processo BPMN vira trabalho executável distribuído".
+Esse entregável pressupõe vocabulário que o curso nunca estabeleceu: o que é BPMN, o que é um
+workflow engine, e a diferença entre *process definition* e *process instance*.
 
-## Out of scope
-| Excluded | Reason |
+A Lesson 001 era, portanto, uma introdução a um vocabulário desconhecido. Este SPEC cria a camada
+que faltava como Lesson 000.
+
+## Escopo
+
+**Dentro:**
+
+- A cadeia causal: problema → workflow engine → notação BPMN → vocabulário → Camunda.
+- O vocabulário central que as lessons posteriores assumem, incluindo a cadeia
+  *service task* → Job → *job worker*.
+- BPMN: *process definition*, *process instance*, variável, *task*, *user task*, *service task*,
+  gateway, e eventos básicos de início e fim.
+- O que é um Job e o que é um Worker, em termos de papel — **sem** o runtime que os hospeda.
+- Cada conceito ancorado no cluster local 8.9.22, que já está em execução.
+
+## Fora de escopo
+
+| Excluído | Motivo |
 | --- | --- |
-| Deploying or executing a BPMN process | The notation is explained; nothing runs. Later lessons. |
-| Writing a job worker | Requires the execution model lesson first |
-| Retry, incident and recovery mechanics | Vocabulary is introduced; behaviour is not |
-| Camunda 7 versus 8 comparison | That is Lesson 001 |
-| DMN, FEEL expressions, Kafka, Kubernetes, multi-tenancy | Separate lessons |
-| Any Java, Spring Boot or build tooling | This lesson produces documentation only |
+| Implantar ou executar um processo BPMN | A notação é explicada; nada é executado. Lessons posteriores. |
+| Escrever um job worker | Requer primeiro a lesson do modelo de execução |
+| Mecânica de retry, incidente e recuperação | O vocabulário é introduzido; o comportamento não |
+| Comparação Camunda 7 → 8 | Isso é a Lesson 001 |
+| Componentes do runtime: Zeebe, Gateway, Broker, partições | É a Lesson 001 §3–§5 |
+| Persistência: log, snapshots, H2, primary/secondary storage | É a Lesson 001 §6 e §13 |
+| DMN, expressões FEEL, Kafka, Kubernetes, multi-tenancy | Lessons separadas |
+| Qualquer Java, Spring Boot ou ferramenta de build | Esta lesson produz apenas documentação |
 
-## Requirements
-- Every factual claim about Camunda 8 is labelled **Fact (8.9)** and sourced to the
-  official documentation version pinned in ADR-0002.
-- Every claim about the running environment is labelled **Observed** and backed by a
-  verbatim command and its output in `evidence.md`.
-- Reasoning that is neither is labelled **Interpretation**.
-- Every introduced term is accompanied by what would break without it.
-- Every component is justified by a constraint before it is named as a feature.
-- The learner is told which popular simplifications are wrong.
+**Nota de escopo.** Esta lesson **não** introduz componentes do Camunda 8. A versão anterior deste
+SPEC prometia explicar "quais componentes o Camunda 8 tem e por que cada um precisa existir", e a
+revisão mostrou que essa promessa é irrealizável sem antes dar conta de Zeebe, Broker e partições:
+explicar o Broker exige a partição, e explicar a partição exige o estado de execução. A promessa foi
+movida para a Lesson 001, que tem a ordem certa para sustainedê-la.
 
-## Constraints
-- No global tool installation. Use the existing vendored compose and project-scoped mise.
-- Read-only against the running cluster. Lesson 000 deploys nothing and changes nothing.
-- No BPMN file may be added to `processes/`; the notation is shown as a diagram in the
-  lesson document only.
-- Additive numbering: Lesson 000 is inserted without renumbering existing lessons.
+## Requisitos
 
-## Verification
-- All relative links in the new documents resolve.
-- Every `Fact (8.9)` claim traces to a documentation page for version 8.9.
-- Every `Observed` claim has a matching verbatim command and output in `evidence.md`.
-- The evidence was produced by a real run, not reconstructed.
-- `processes/` contains no new files.
-- Lesson 000 remains `ready`, not `completed`, until independent review.
+- Toda afirmação factual sobre o Camunda 8 é rotulada **Fato (8.9)** e tem fonte na documentação
+  oficial da versão fixada no ADR-0002, com URL verificada.
+- Toda afirmação sobre o ambiente em execução é rotulada **Observado** e sustentada por um comando
+  verbatim e sua saída em `evidence.md`.
+- Raciocínio que não é nenhum dos dois é rotulado **Interpretação**.
+- Todo termo introduzido vem acompanhado do que quebraria sem ele.
+- O aluno é avisado de quais simplificações populares estão erradas.
+- Todo conceito de runtime fica para a Lesson 001, e a Lesson 000 termina com uma ponte explícita
+  para lá.
 
-## Dependencies
-- ADR-0002, which pins Camunda 8.9.x.
-- The vendored local environment in `infra/local/camunda-8.9/`.
+## Restrições
 
-## Related lesson
-`docs/lessons/000-camunda-bpmn-concepts/lesson.md`, which unblocks
+- Nenhuma instalação global de ferramenta. Usar o Compose vendorizado existente e o mise com escopo
+  no projeto.
+- Somente leitura contra o cluster em execução. A Lesson 000 não implanta nada e não altera nada.
+- Nenhum arquivo BPMN pode ser adicionado a `processes/`; a notação aparece apenas como diagrama
+  no documento da lesson.
+- Numeração aditiva: a Lesson 000 é inserida sem renumerar as existentes.
+
+## Verificação
+
+- Todos os links relativos dos documentos novos resolvem.
+- Toda afirmação `Fato (8.9)` rastreia até uma página de documentação da versão 8.9, com URL que
+  retorna 200.
+- Toda afirmação `Observado` tem um comando verbatim correspondente em `evidence.md`.
+- A evidência foi produzida por uma execução real, não reconstruída.
+- `processes/` não contém arquivos novos.
+- Nenhum bloco Mermaid quebra a renderização — `docs/validate-mermaid.sh` passa.
+- A Lesson 000 permanece `ready`, não `completed`, até a revisão independente.
+
+## Dependências
+
+- ADR-0002, que fixa o Camunda 8.9.x.
+- O ambiente local vendorizado em `infra/local/camunda-8.9/`.
+
+## Lesson relacionada
+
+`docs/lessons/000-camunda-bpmn-concepts/lesson.md`, que desbloqueia
 `docs/lessons/001-camunda7-8-mental-model/lesson.md`.

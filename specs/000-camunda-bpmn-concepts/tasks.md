@@ -1,46 +1,56 @@
-# SPEC-000 Tasks
+# Tarefas do SPEC-000
 
-## Evidence
+## Evidência
 
-- [x] Capture the running stack, image versions and health.
-- [x] Capture `/v2/topology` to separate broker from gateway.
-- [x] Capture `/actuator/partitions` to expose log position, snapshot and exporter phase.
-- [x] Sample the log position over time to show the log advancing.
-- [x] Capture `/actuator/exporters` to show the exporter is enabled.
-- [x] Capture `/actuator/cluster` to show partition routing strategy.
-- [x] Capture both storage volumes to show the separation.
-- [x] Confirm no external database connection.
-- [x] Confirm zero process instances via the v2 search API.
-- [x] Record the failed `/v1/*` attempt and the SPA false positive, so the correct v2
-      method is documented rather than rediscovered.
+- [x] Capturar a stack em execução, as versões de imagem e a saúde.
+- [x] Capturar `/v2/topology` para separar broker de gateway.
+- [x] Capturar `/actuator/partitions` para expor posição do log, snapshot e fase do exporter.
+- [x] Amostrar a posição do log ao longo do tempo para mostrar o log avançando.
+- [x] Capturar `/actuator/exporters` para mostrar o exporter habilitado.
+- [x] Capturar `/actuator/cluster` para mostrar a estratégia de roteamento de partições.
+- [x] Capturar os dois volumes de armazenamento para mostrar a separação.
+- [x] Confirmar ausência de conexão com banco externo.
+- [x] Confirmar zero instâncias de processo pela API de busca v2.
+- [x] Registrar a tentativa falha de `/v1/*` e o falso positivo da SPA, para que o método correto
+      em v2 fique documentado em vez de ser redescoberto.
 
-## Content
+## Conteúdo
 
-- [x] Write the problem that motivates a workflow engine.
-- [x] Define a workflow engine and explain why state must outlive the code.
-- [x] Explain BPMN as an OMG standard rather than a Camunda invention.
-- [x] Build the vocabulary table: definition, instance, task, user task, service task,
-      job, job worker, variable.
-- [x] Write the service task → job → job worker chain explicitly.
-- [x] Explain what Camunda is and how 7 and 8 relate as engine generations.
-- [x] Build the component table with "what / why it must exist / live proof".
-- [x] Explain the log and what a position means.
-- [x] Define primary versus secondary storage with Camunda's terminology.
-- [x] Record the tension between Camunda's marketing framing and the observed reality.
-- [x] Add a "terms not to conflate" section and an interview-question set.
+- [x] Escrever o problema que motiva um workflow engine.
+- [x] Definir workflow engine e explicar por que o estado precisa sobreviver ao código.
+- [x] Explicar BPMN como padrão OMG, e não como invenção da Camunda.
+- [x] Construir a tabela de vocabulário: definition, instance, task, user task, service task, job,
+      job worker, variável.
+- [x] Escrever explicitamente a cadeia *service task* → Job → *job worker*.
+- [x] Explicar o que é Camunda e como 7 e 8 se relacionam como gerações de engine.
+- [x] Adicionar a seção "termos que não devem ser confundidos" e o conjunto de perguntas de
+      entrevista.
+- [x] Encerrar com uma ponte explícita para a Lesson 001.
 
-## Registration
+## Movido para a Lesson 001 na revisão de 2026-09-29
 
-- [x] Add Module 0 to `docs/learning-roadmap.md`.
-- [x] Add Module 0 to `docs/course-structure.md`.
-- [x] Add item 0 to the knowledge-base progression in `docs/camunda/README.md`.
-- [x] Create `docs/modules/00-orientation/README.md`.
-- [x] Mark Lesson 001 as depending on Lesson 000.
+Estas tarefas estavam no escopo do SPEC-000 e foram transferidas, porque dependem de
+vocabulário de runtime que a Lesson 000 deliberadamente não introduz.
 
-## Verification
+- [x] Tabela de componentes, com o que cada um faz e o que **não** faz.
+- [x] Explicar o log e o que uma posição significa.
+- [x] Definir primary versus secondary storage com a terminologia da Camunda.
+- [x] Registrar a tensão entre o enquadramento de marketing da Camunda e a realidade observada.
 
-- [x] All relative links resolve.
-- [x] Every factual claim carries the 8.9 label.
-- [x] Every observed claim has a verbatim command in `evidence.md`.
-- [x] No BPMN file added under `processes/`.
-- [ ] Independent review of the lesson.
+## Registro
+
+- [x] Adicionar o Módulo 0 em `docs/learning-roadmap.md`.
+- [x] Adicionar o Módulo 0 em `docs/course-structure.md`.
+- [x] Adicionar o item 0 à progressão da base de conhecimento em `docs/camunda/README.md`.
+- [x] Criar `docs/modules/00-orientation/README.md`.
+- [x] Marcar a Lesson 001 como dependente da Lesson 000.
+
+## Verificação
+
+- [x] Todos os links relativos resolvem.
+- [x] Toda afirmação factual carrega o rótulo 8.9 e uma URL verificada.
+- [x] Toda afirmação observada tem um comando verbatim em `evidence.md`.
+- [x] Nenhum arquivo BPMN adicionado em `processes/`.
+- [x] `docs/validate-mermaid.sh` renderiza todos os blocos.
+- [x] Documentação em PT-BR, com termos oficiais preservados em inglês.
+- [ ] Revisão independente da lesson.

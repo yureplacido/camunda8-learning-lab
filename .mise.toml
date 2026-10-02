@@ -14,9 +14,11 @@
 #   ./infra/local/mise.sh exec -- java -version
 #   ./infra/local/mise.sh which java
 #
-# Deliberately empty for now. Lesson 001 produces no code and needs no JVM.
-# The first lesson that actually requires Java pins it here, and only versions
-# that Camunda 8.9 officially supports (see docs/adr/0002-camunda-8-version-pin.md).
+# A Lesson 001 não produz código e não precisa de JVM, por isso chegou sem fixar
+# nada. A Lesson 002 é a primeira a precisar: o SayHelloWorker é um serviço Spring
+# Boot com teste de contrato contra o BPMN. Java e Maven estão fixados abaixo, em
+# versões que o Camunda 8.9 suporta — ver
+# docs/adr/0002-camunda-8-version-pin.md.
 
 [tools]
 java = "21.0.2"

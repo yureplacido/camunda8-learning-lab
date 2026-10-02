@@ -19,3 +19,5 @@
 # that Camunda 8.9 officially supports (see docs/adr/0002-camunda-8-version-pin.md).
 
 [tools]
+java = "21.0.2"
+maven = "3.9.12"

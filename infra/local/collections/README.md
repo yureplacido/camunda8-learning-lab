@@ -57,7 +57,7 @@ As pastas são numeradas porque dependem umas das outras. Rodar `30` sem `20` n�
 | `10 — A armadilha do 200` | 2 | — |
 | `20 — Deploy` | 4 | `bpmnPath` válido |
 | `30 — Instância` | 6 | `20` |
-| `40 — O limite do REST` | 2 | `20` |
+| `40 — Jobs pela REST` | 2 | `20` |
 | `90 — Descoberta da API` | 2 | — |
 
 ## Os dois modos da pasta `30`
@@ -82,7 +82,7 @@ node infra/local/collections/run-collections.mjs
 node infra/local/collections/run-collections.mjs
 ```
 
-As contagens de asserção diferem entre os dois ramos (58 sem worker, 56 com worker) porque cada regime afirma coisas diferentes. Contagem idêntica nos dois modos não é erro por si só, mas merece checagem: pode significar que o ramo por `awaitMode` não está afirmando nada diferente. Comparar o total com a contagem de `pm.test` no JSON é o que pega esse tipo de ramo morto.
+As contagens de asserção diferem entre os dois ramos (59 sem worker, 57 com worker) porque cada regime afirma coisas diferentes. O total exato varia com o estado acumulado do cluster — o arquivo tem 63 `pm.test` e quatro são condicionais ao regime —, então trate o número como medição, não como constante: o invariante é o delta de 2 e o `0 request(s) com falha`. Contagem idêntica nos dois modos não é erro por si só, mas merece checagem: pode significar que o ramo por `awaitMode` não está afirmando nada diferente. Comparar o total com a contagem de `pm.test` no JSON é o que pega esse tipo de ramo morto.
 
 ## O que a coleção ensina, e por que cada request existe
 
@@ -90,7 +90,8 @@ As contagens de asserção diferem entre os dois ramos (58 sem worker, 56 com wo
 - **`404` de verdade vem em `application/problem+json`** (RFC 9457), com `type`, `title`, `status`, `detail`, `instance`.
 - **`GET /v2/status` devolve `204`**, sem corpo. Sucesso não é `200`.
 - **`POST /v2/deployments` não aceita `deployment-name`.** O contrato v2 é `resources` e `tenantId`; o campo é da API v1 por componente.
-- **A REST v2 não ativa Job.** `POST /v2/jobs` é `404`. Ativação e completion são gRPC/SDK — é a fronteira, e ela é real.
+- **`POST /v2/jobs` é `404` porque esse path não existe — não porque a REST v2 não ative Job.** O caminho real é `POST /v2/jobs/activation`, e ele responde `400 INVALID_ARGUMENT` dizendo o que falta (`type`, `timeout`, `maxJobsToActivate`). O ciclo inteiro do Job é v2: `activation`, `{jobKey}/completion`, `{jobKey}/failure`, `PATCH {jobKey}` para resetar `retries`, e `search`.
+- **Correção registrada:** a versão anterior desta coleção afirmava que ativar e completar Job eram fronteira gRPC, e o `validate-collections.sh` tinha o path errado numa lista de exceções que o bendizia. Um `404` prova que um path não existe, não que uma capacidade não existe. Ver `docs/lessons/002-deploy-instance-worker/evidence.md`.
 - **O campo do Job é `jobKey`,** não `key`. Os `customHeaders` do BPMN viajam com o Job, e `retries` vem do `retries="3"` do service task.
 
 ### O atraso do secondary storage

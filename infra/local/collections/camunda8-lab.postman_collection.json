@@ -779,12 +779,14 @@
                   "    pm.expect(byDef.length).to.be.above(0);",
                   "  });",
                   "  pm.test('sem worker: o 504 não cancelou a instância', function () {",
-                  "    // A busca traz também as execuções anteriores, que o worker concluiu.",
-                  "    // A afirmação é sobre cancelamento: nenhum item pode estar TERMINATED.",
-                  "    items.filter(function (x) { return x.processDefinitionKey === defKey; }).forEach(function (x) {",
-                  "      pm.expect(x.state).to.not.eql('TERMINATED');",
-                  "      pm.expect(x.isCanceled).to.not.eql(true);",
-                  "    });",
+                  "    // A busca traz também as execuções anteriores, e o lab acumula runs:",
+                  "    // uma instância TERMINATED de uma sessão antiga reprovaria esta request",
+                  "    // para sempre, sem culpa do 504 sob teste. A afirmação é sobre a",
+                  "    // instância DELEVE — a mais recente, já que a busca pede startDate DESC.",
+                  "    const maisRecente = items[0];",
+                  "    pm.expect(maisRecente).to.not.eql(undefined);",
+                  "    pm.expect(maisRecente.state).to.not.eql('TERMINATED');",
+                  "    pm.expect(maisRecente.isCanceled).to.not.eql(true);",
                   "  });",
                   "  pm.test('sem worker: existe uma instância nova parada em ACTIVE, com endDate nulo', function () {",
                   "    const ativas = items.filter(function (x) {",
@@ -1062,8 +1064,8 @@
       ]
     },
     {
-      "name": "40 — O limite do REST",
-      "description": "Ativar e completar Job não existe na Orchestration Cluster REST API. O REST observa; o worker fala gRPC. Estes requests tornam essa fronteira verificável em vez de afirmada.",
+      "name": "40 — Jobs pela REST",
+      "description": "O ciclo de vida do Job é observável e comandável pela Orchestration Cluster REST API. Buscar, ativar, falhar, completar e resetar retries são todos endpoints v2.\n\n**Correção, registrada em vez de apagada.** A versão anterior desta pasta afirmava que ativar e completar Job não existiam na REST v2, e que essa fronteira era gRPC. Era falso, e o próprio material desta lesson contém a refutação: `POST /v2/jobs/search` responde 200 e devolve `retries`. O `POST /v2/jobs` dava 404 porque esse caminho exato não existe — o caminho real é `POST /v2/jobs/activation`. Um 404 prova que um path não existe, não que um capacidade não existe.",
       "item": [
         {
           "name": "Os Jobs que o motor criou",
@@ -1125,18 +1127,27 @@
           "response": []
         },
         {
-          "name": "Ativar Job: um request que não pode passar",
+          "name": "Ativação de Job existe na REST v2",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('404: não existe endpoint de ativação de Job na REST v2', function () {",
-                  "  pm.expect(pm.response.code).to.eql(404);",
+                  "const p = pm.response.json();",
+                  "",
+                  "pm.test('o endpoint de ativação existe e responde 400, não 404', function () {",
+                  "  pm.expect(pm.response.code).to.eql(400);",
                   "});",
-                  "pm.test('e o erro é problem+json, não a SPA', function () {",
+                  "pm.test('é a API que recusou, não a SPA e não o roteador', function () {",
                   "  pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "  pm.expect(p.instance).to.eql('/v2/jobs/activation');",
+                  "});",
+                  "pm.test('o 400 diz o que falta, e o instance confirma o path real', function () {",
+                  "  pm.expect(p.title).to.eql('INVALID_ARGUMENT');",
+                  "  pm.expect(p.detail).to.include('No type provided');",
+                  "  pm.expect(p.detail).to.include('timeout');",
+                  "  pm.expect(p.detail).to.include('maxJobsToActivate');",
                   "});"
                 ]
               }
@@ -1155,16 +1166,17 @@
               "raw": "{}"
             },
             "url": {
-              "raw": "{{baseUrl}}/v2/jobs",
+              "raw": "{{baseUrl}}/v2/jobs/activation",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "v2",
-                "jobs"
+                "jobs",
+                "activation"
               ]
             },
-            "description": "Este request existe para **falhar**. Na spec v2 há `POST /v2/jobs/search` e `GET /v2/jobs/statistics/global`, e nada mais: ativar Job é `POST /jobs/activate` no gRPC do Zeebe (porta 26500), e completar é `CompleteJob`.\n\nUm learner que tente fechar o ciclo inteiro pela REST API trava aqui. Este request registra o limite como Fato verificado: a fronteira entre observar e executar é gRPC, e por isso o Job Worker da Lesson 002 fala um protocolo diferente do que a coleção usa."
+            "description": "Substitui o antigo `POST /v2/jobs`, que dava 404 e era lido como prova de que a REST v2 não ativava Job. **Não era.** O caminho real é `POST /v2/jobs/activation`, e ele responde.\n\nO corpo vazio é de propósito: um `400 INVALID_ARGUMENT` que nomeia `type`, `timeout` e `maxJobsToActivate` prova que o endpoint existe, que leu o corpo, e que o Gateway repassou a validação. Um `404` nesse mesmo lugar seria o Gateway recusando o path — outra coisa, mais fraca.\n\nAtivar de verdade exige os três campos e rouba o Job de quem estiver ouvindo aquele tipo. Fazer isso aqui quebraria a pasta `30`, que depende do worker consumir o Job. A ativação real, com retries decrementando até incidente, é a Lesson 003.\n\nO ciclo completo em v2 é `POST /v2/jobs/activation`, `POST /v2/jobs/{jobKey}/completion`, `POST /v2/jobs/{jobKey}/failure`, `PATCH /v2/jobs/{jobKey}` (reseta `retries`) e `POST /v2/jobs/search`."
           },
           "response": []
         }

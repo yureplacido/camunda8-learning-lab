@@ -31,12 +31,28 @@ para comparar.
 
 | Lesson | Tópico | Status |
 | --- | --- | --- |
-| 001 | Onde esses conceitos vivem dentro do Camunda 8 | `ready` |
-| 002 | Modelo de execução do Zeebe | planejada |
-| 003 | Execução BPMN | planejada |
-| 004 | Instâncias de processo e variáveis | planejada |
-| 005 | Jobs e job workers | planejada |
-| 006 | Retries, incidentes e recuperação | planejada |
+| [001](lessons/001-camunda7-8-mental-model/lesson.md) | Onde esses conceitos vivem dentro do Camunda 8 | `completed` |
+| [002](lessons/002-deploy-instance-worker/lesson.md) | Deploy, Instância e Primeiro Job Worker | `completed` |
+| 003 | Retries, incidentes e recuperação | planejada |
+| 004 | Escala e concorrência do worker | planejada |
+| 005 | Ciclo de vida e backpressure | planejada |
+
+**Ajuste de numeração, registrado em vez de sobrescrito.** Este módulo foi planejado como
+001 Onde os conceitos vivem · 002 Modelo de execução do Zeebe · 003 Execução BPMN · 004 Instâncias
+e variáveis · 005 Jobs e job workers · 006 Retries, incidentes e recuperação.
+
+A Lesson 002 implementada executou em uma só rodada o conteúdo que estava planejado para 003, 004
+e 005 — deploy, execução do BPMN, criação de instância com variáveis, e o primeiro Job Worker
+consumindo um Job —, cada um com evidência de execução real. Ensinar "Execução BPMN" de novo,
+como uma 003, repetiria material já provado.
+
+Então os números foram reenquadrados para refletir o que foi de fato estudado: **003 passa a ser
+Retries, incidentes e recuperação**, o tema que era o 006. A ordem de aprendizado não muda — a
+fronteira transacional vem antes de retries, e retries vem antes de escala. Muda o rótulo.
+
+Os temas antigos 004 e 005 (escala, backpressure) entram como 004 e 005, e as lessons que
+interessam ao Módulo 3 — workers Java, testes de worker, ciclo de vida — permanecem nos módulos
+seguintes, sem duplicar.
 
 ## Módulo 2 — BPMN e comportamento de workflow
 
@@ -79,6 +95,8 @@ A estrutura do repositório é estabelecida primeiro. A implementação segue a 
 aprendizado.
 
 **A lesson nunca implementa uma lição futura.** Onde uma lesson encontra uma lacuna, ela registra
-a lacuna e deixa a implementação para a lesson que vai ensiná-la. `.mise.toml` fica com
-`[tools]` vazio até a primeira lesson que realmente precise de JVM — ver
-[ADR-0002](adr/0002-camunda-8-version-pin.md).
+a lacuna e deixa a implementação para a lesson que vai ensiná-la.
+
+A regra original dizia que `.mise.toml` ficaria com `[tools]` vazio até a primeira lesson que
+precissasse de JVM. Isso deixou de valer na Lesson 002, que fixou Java 21 e Maven para o
+`first-worker`. O arquivo está fixado, e a justificativa está no próprio `.mise.toml`.

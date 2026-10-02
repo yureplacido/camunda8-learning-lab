@@ -35,10 +35,25 @@ dentro deste repositório, para que ele seja reproduzível sem tocar na configur
 | `MISE_STATE_DIR` | `<project>/.mise/state` |
 | `MISE_CONFIG_DIR` | `<project>/.mise/config` |
 
-`.mise/` está no gitignore. **A Lesson 001 não fixa nenhuma ferramenta**, porque não produz código e
-não precisa de JVM. `.mise.toml` tem `[tools]` **vazio de propósito**. A primeira lesson que
-realmente precisar de Java vai fixá-la em uma versão que o Camunda 8.9 suporta — ver
+`.mise/` está no gitignore. A Lesson 001 não fixou ferramenta nenhuma, porque não produz código e
+não precisa de JVM. A **Lesson 002** é a primeira a precisar: o `SayHelloWorker` é um serviço
+Spring Boot com teste de contrato contra o BPMN, e `.mise.toml` passa a fixar `java` e `maven` em
+versões que o Camunda 8.9 suporta — ver
 [ADR-0002](../../docs/adr/0002-camunda-8-version-pin.md).
+
+## Coleções Postman
+
+`collections/` traz uma coleção v2.1 de 22 requests organizada **por objetivo** (não por lição),
+com asserções sobre o corpo das respostas, um runner sem dependências e um validador que confere
+cada path e método contra a OpenAPI viva do cluster:
+
+```bash
+./infra/local/validate-collections.sh
+node infra/local/collections/run-collections.mjs
+```
+
+Detalhes, ordem de execução e os dois modos (com e sem worker) em
+[collections/README.md](collections/README.md).
 
 ## Cluster local Camunda 8.9.22
 
@@ -48,7 +63,7 @@ para remover exemplos BPMN, e2e/Playwright e a stack de gerenciamento.
 
 Este é o ambiente **Camunda 8 Self-Managed via Docker Compose**. Não é Camunda 8 Run — são
 produtos diferentes. Ver
-[Lesson 001 §2](../docs/lessons/001-camunda7-8-mental-model/lesson.md).
+[Lesson 001 §2](../../docs/lessons/001-camunda7-8-mental-model/lesson.md).
 
 ### Subir
 
@@ -82,7 +97,7 @@ docker compose exec -T orchestration netstat -tn | grep -E ":(5432|3306|1521|270
 **Atenção ao `grep` do H2.** A conexão externa **não** é a mesma coisa que "não há banco". O H2 é um
 arquivo dentro do container, e aparece em `/actuator/health` como `rdbmsStatus`. Um comando que só
 procura portas externas produz uma conclusão correta por um motivo errado. Ver
-[Lesson 001 §13](../docs/lessons/001-camunda7-8-mental-model/lesson.md).
+[Lesson 001 §13](../../docs/lessons/001-camunda7-8-mental-model/lesson.md).
 
 ### Parar e limpar
 
@@ -111,7 +126,7 @@ modificação de propósito, para que o artefato vendorizado seja reconhecível 
 **Achado menor, não corrigido:** a execução de 2026-09-29 deixou uma rede `camunda-89_default` do
 mesmo projeto, sem nenhum container ligado. É resíduo de uma execução anterior e não afeta o
 ambiente. Registrado em
-[evidence §1.5](../docs/lessons/001-camunda7-8-mental-model/evidence.md) em vez de ser limpo, para
+[evidence §1.5](../../docs/lessons/001-camunda7-8-mental-model/evidence.md) em vez de ser limpo, para
 não fabricar uma observação.
 
 ## Atualizar o Compose vendorizado
@@ -133,6 +148,6 @@ idêntico (`103c0f85c4b3ab2928a9cdb6c74e2ad9c00f8b9cc3ff45fc1ae419be279d8546`).
 ## Para onde foi a evidência
 
 As observações da execução de 2026-09-29 estão em
-[evidence da Lesson 001](../docs/lessons/001-camunda7-8-mental-model/evidence.md), e o resumo
+[evidence da Lesson 001](../../docs/lessons/001-camunda7-8-mental-model/evidence.md), e o resumo
 estrutural, em
-[mapa de componentes](../docs/camunda/camunda-8-local-components.md).
+[mapa de componentes](../../docs/camunda/camunda-8-local-components.md).

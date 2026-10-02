@@ -7,9 +7,11 @@ spring:
 camunda:
   client:
     mode: self-managed
-    zeebe:
-      gateway-address: localhost:26500
-      rest-address: http://localhost:8080
+    # Endereços no nível de `client`, não de `client.zeebe`: o starter 8.9
+    # aceita o caminho antigo, mas emite
+    # "Legacy property 'camunda.client.zeebe.rest-address' found" e pede migração.
+    gateway-address: localhost:26500
+    rest-address: http://localhost:8080
     worker:
       defaults:
         request-timeout: 30s

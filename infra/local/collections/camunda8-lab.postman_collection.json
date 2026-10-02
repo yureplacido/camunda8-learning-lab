@@ -1,0 +1,1260 @@
+{
+  "info": {
+    "_postman_id": "b7f4c2a1-9d3e-4c58-8a61-0f2e5d7c9b13",
+    "name": "Camunda 8 Learning Lab — 8.9",
+    "description": "Recorte da Orchestration Cluster REST API (v2) organizado por objetivo de aprendizagem, não por lição.\n\nCada request afirma sobre o CORPO da resposta, nunca apenas sobre o status HTTP. Um 200 na SPA do Operate é 200 sem que nenhuma API tenha respondido — a pasta `10` existe para tornar essa armadilha executável.\n\nOs requests de escrita capturam as keys em variáveis de coleção. A key da process definition muda a cada deploy, então nada aqui é fixo.\n\nImportação e ordem de execução: infra/local/collections/README.md",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "monitoringUrl",
+      "value": "http://localhost:9600",
+      "type": "string"
+    },
+    {
+      "key": "bpmnPath",
+      "value": "/home/placido/desarrollo/camunda/camunda8-learning-lab/processes/002-first-worker/first-worker.bpmn",
+      "type": "string"
+    },
+    {
+      "key": "expectedProcessDefinitionId",
+      "value": "lesson-002-first-worker",
+      "type": "string"
+    },
+    {
+      "key": "jobType",
+      "value": "say-hello",
+      "type": "string"
+    },
+    {
+      "key": "instanceName",
+      "value": "Mundo",
+      "type": "string"
+    },
+    {
+      "key": "requestTimeoutMs",
+      "value": "5000",
+      "type": "string"
+    },
+    {
+      "key": "processDefinitionKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "processDefinitionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "processDefinitionVersion",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "processInstanceKey",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 — Saúde e topologia",
+      "description": "Antes de escrever qualquer processo, provar que existe um cluster, quem é o leader, e onde ficam os dois armazenamentos. Nenhum destes requests escreve no cluster.",
+      "item": [
+        {
+          "name": "Topologia do cluster",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const t = pm.response.json();",
+                  "pm.test('200 com corpo JSON', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(t).to.be.an('object');",
+                  "});",
+                  "pm.test('cluster local: 1 broker, 1 partição, 1 réplica', function () {",
+                  "  pm.expect(t.clusterSize).to.eql(1);",
+                  "  pm.expect(t.partitionsCount).to.eql(1);",
+                  "  pm.expect(t.replicationFactor).to.eql(1);",
+                  "});",
+                  "pm.test('broker e gateway na mesma versão 8.9', function () {",
+                  "  pm.expect(t.gatewayVersion).to.match(/^8\\.9\\./);",
+                  "  pm.expect(t.brokers[0].version).to.eql(t.gatewayVersion);",
+                  "});",
+                  "pm.test('partição 1 é leader e está saudável', function () {",
+                  "  const p = t.brokers[0].partitions[0];",
+                  "  pm.expect(p.partitionId).to.eql(1);",
+                  "  pm.expect(p.role).to.eql('leader');",
+                  "  pm.expect(p.health).to.eql('healthy');",
+                  "});",
+                  "pm.test('broker escuta em 26501 (commandApi, protocolo SBE — não é gRPC)', function () {",
+                  "  pm.expect(String(t.brokers[0].port)).to.eql('26501');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v2/topology",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "topology"
+              ]
+            },
+            "description": "Quem distribui o trabalho e para onde os comandos vão. `brokers[0].port` é 26501, a commandApi do Broker, e o transporte entre Gateway e Broker é SBE. O gRPC em 26500 é a porta do Gateway para clientes externos — são coisas diferentes, e a distinção importa porque o erro de timeout do awaitCompletion nasce exatamente nesse hop interno."
+          },
+          "response": []
+        },
+        {
+          "name": "Status do engine (204, sem corpo)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 e nenhum corpo', function () {",
+                  "  pm.expect(pm.response.code).to.eql(204);",
+                  "  pm.expect(pm.response.text()).to.eql('');",
+                  "});",
+                  "pm.test('204 é uma resposta bem-sucedida, não um erro', function () {",
+                  "  pm.expect(pm.response.code).to.be.within(200, 299);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v2/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "status"
+              ]
+            },
+            "description": "Resposta vazia é resposta válida. Aqui `200` seria a expectativa errada: o endpoint responde `204 No Content`. Serve para não escrever asserções que só funcionam porque funcionaram na primeira tentativa."
+          },
+          "response": []
+        },
+        {
+          "name": "Licença em uso",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const l = pm.response.json();",
+                  "pm.test('200 e corpo JSON', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(l).to.be.an('object');",
+                  "});",
+                  "pm.test('tipo de licença presente (unknown = sem licença de produção)', function () {",
+                  "  pm.expect(l).to.have.property('licenseType');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v2/license",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "license"
+              ]
+            },
+            "description": "`unknown` é o esperado para o perfil local self-managed sem licença comercial. Serve para provar que nenhum recurso pago está sendo assumido por acidente."
+          },
+          "response": []
+        },
+        {
+          "name": "Saúde do Broker e o papel do H2",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const h = pm.response.json();",
+                  "pm.test('200 e corpo JSON', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "});",
+                  "pm.test('broker saudável', function () {",
+                  "  pm.expect(h.status).to.eql('UP');",
+                  "});",
+                  "pm.test('o H2 existe e é monitorado como componente de saúde', function () {",
+                  "  pm.expect(h.components.rdbmsStatus.status).to.eql('UP');",
+                  "  pm.expect(h.components.rdbmsStatus.details.database).to.eql('H2');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{monitoringUrl}}/actuator/health",
+              "host": [
+                "{{monitoringUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            },
+            "description": "Porta 9600 é a monitoringApi do Broker, não do Gateway. O que se prova aqui é que o armazenamento secundário existe e é verificado pelo motor: `rdbmsStatus.details.database` responde `H2`. A afirmação correta não é «Camunda 8 não tem banco», é que o log replicado é a fonte da verdade e o H2 é uma projeção reconstruível."
+          },
+          "response": []
+        },
+        {
+          "name": "Partições: objeto indexado, não array",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const p = pm.response.json();",
+                  "pm.test('a resposta é um OBJETO indexado por partição, não um array', function () {",
+                  "  pm.expect(Array.isArray(p)).to.eql(false);",
+                  "  pm.expect(Object.keys(p)).to.include('1');",
+                  "});",
+                  "pm.test('partição 1 é LEADER e está HEALTHY', function () {",
+                  "  pm.expect(p['1'].role).to.eql('LEADER');",
+                  "  pm.expect(p['1'].health.status).to.eql('HEALTHY');",
+                  "});",
+                  "pm.test('exporter ativo e posição processada rastreando a exportada', function () {",
+                  "  pm.expect(p['1'].exporterPhase).to.eql('EXPORTING');",
+                  "  const delta = Math.abs(p['1'].processedPosition - p['1'].exportedPosition);",
+                  "  pm.expect(delta).to.be.below(1000);",
+                  "});",
+                  "pm.test('existe snapshot: o log tem história compactada', function () {",
+                  "  pm.expect(p['1'].snapshotId).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{monitoringUrl}}/actuator/partitions",
+              "host": [
+                "{{monitoringUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "partitions"
+              ]
+            },
+            "description": "A chave é a string `\"1\"`. Escrever `d[0]` produz `undefined` e transforma uma leitura válida em um bug silencioso. `processedPosition` e `exportedPosition` andam lado a lado por desenho: a diferença entre elas é a janela de lag do exporter para o armazenamento secundário."
+          },
+          "response": []
+        },
+        {
+          "name": "Exporters habilitados",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const e = pm.response.json();",
+                  "pm.test('o rdbms exporter está ENABLED', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  const rdbms = e.find(function (x) { return x.exporterId === 'rdbms'; });",
+                  "  pm.expect(rdbms).to.not.eql(undefined);",
+                  "  pm.expect(rdbms.status).to.eql('ENABLED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{monitoringUrl}}/actuator/exporters",
+              "host": [
+                "{{monitoringUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "exporters"
+              ]
+            },
+            "description": "O que alimenta o H2. Se este request dissesse `DISABLED`, o H2 existiria em disco e não receberia nada — o health check continuaria verde. Por isso a afirmação correta é sobre o status do exporter, não sobre a existência do arquivo."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "10 — A armadilha do 200",
+      "description": "A UI single-page responde 200 em qualquer caminho sob `/operate/`. Status HTTP sozinho não prova que uma API respondeu. Estes dois requests tornam isso verificável.",
+      "item": [
+        {
+          "name": "GET em caminho de API que NÃO é API",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('o status é 200...', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "});",
+                  "pm.test('...mas quem respondeu foi a SPA do Operate, não a API', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Type')).to.include('text/html');",
+                  "  pm.expect(pm.response.text().slice(0, 15).toLowerCase()).to.eql('<!doctype html>');",
+                  "});",
+                  "pm.test('logo, não existe JSON para interpretar aqui', function () {",
+                  "  pm.expect(function () { pm.response.json(); }).to.throw();",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/operate/v1/process-instances/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "operate",
+                "v1",
+                "process-instances",
+                "search"
+              ]
+            },
+            "description": "Este é o request que falha em quem não espera por ele. O status é 200 e o corpo é a aplicação web do Operate. Um teste escrito como «espero 200, logo a API respondeu» passa aqui sem ter testado nada.\n\nEm 8.9 a API `/v1` por componente está deprecada, e a spec `Operate-v1` que o Swagger anuncia tem zero paths. A superfície real é `/v2`."
+          },
+          "response": []
+        },
+        {
+          "name": "404 de verdade (RFC 9457)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const e = pm.response.json();",
+                  "pm.test('404, não 200', function () {",
+                  "  pm.expect(pm.response.code).to.eql(404);",
+                  "});",
+                  "pm.test('erro em application/problem+json, não HTML', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "});",
+                  "pm.test('corpo com os campos de RFC 9457', function () {",
+                  "  pm.expect(e.status).to.eql(404);",
+                  "  pm.expect(e).to.have.property('title');",
+                  "  pm.expect(e).to.have.property('detail');",
+                  "  pm.expect(e).to.have.property('instance');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v2/nao-existe",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "nao-existe"
+              ]
+            },
+            "description": "O contraste com o request anterior. Um erro real chega em `application/problem+json` com `type`, `status`, `title`, `detail` e `instance`. Distinguir esse formato do HTML da SPA é o que separa «a API disse que não existe» de «ninguém respondeu»."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "20 — Deploy",
+      "description": "Uma process definition existe antes de qualquer process instance. Esta pasta faz o deploy e captura a key devolvida, porque nenhum request seguinte pode depender de uma key fixa.",
+      "item": [
+        {
+          "name": "Deploy do BPMN (multipart)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d = pm.response.json();",
+                  "const pd = d.deployments[0].processDefinition;",
+                  "",
+                  "pm.test('200 com deploymentKey', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(d.deploymentKey).to.be.a('string');",
+                  "});",
+                  "pm.test('o recurso entrou como process definition', function () {",
+                  "  pm.expect(pd).to.not.eql(null);",
+                  "  pm.expect(pd.processDefinitionId).to.eql(pm.collectionVariables.get('expectedProcessDefinitionId'));",
+                  "});",
+                  "pm.test('a versão devolvida é um inteiro positivo', function () {",
+                  "  pm.expect(pd.processDefinitionKey).to.match(/^\\d+$/);",
+                  "  pm.expect(pd.processDefinitionVersion).to.be.least(1);",
+                  "});",
+                  "pm.test('capturo as keys para os próximos requests', function () {",
+                  "  pm.collectionVariables.set('processDefinitionKey', String(pd.processDefinitionKey));",
+                  "  pm.collectionVariables.set('processDefinitionId', pd.processDefinitionId);",
+                  "  pm.collectionVariables.set('processDefinitionVersion', String(pd.processDefinitionVersion));",
+                  "  // Falha aqui, e não em silence, se o deploy voltar sem definition.",
+                  "  pm.expect(pm.collectionVariables.get('processDefinitionKey')).to.match(/^\\d+$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "resources",
+                  "type": "file",
+                  "src": "{{bpmnPath}}",
+                  "contentType": "text/xml"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/deployments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "deployments"
+              ]
+            },
+            "description": "O contrato v2 aceita apenas `resources` e `tenantId`. Não existe `deployment-name`: esse campo pertencia à API v1 por componente, e enviá-lo aqui é enviar um campo que a spec declara proibido (`additionalProperties: false`).\n\n**Correção.** Este request afirmava que «a processDefinitionKey muda a cada deploy». O experimento A/B/C refutou a forma simples dessa frase. Observado em 8.9.22, com o mesmo arquivo:\n\n- A — reenviar o arquivo do deploy mais recente: devolve a **mesma** versão e a **mesma** key;\n- B — enviar conteúdo diferente: versão nova, key nova;\n- C — voltar ao conteúdo original depois de B: **versão nova**, key nova.\n\nOu seja: reenviar o recurso corrente é idempotente, mas uma key nunca é reutilizada. Voltar a um conteúdo anterior cria uma versão nova em vez de reaproveitar a antiga. Isso também explica por que a Lesson 002 registra a versão 1 enquanto o cluster tem hoje versões 2, 3 e 4 do mesmo `processDefinitionId`: o arquivo mudou depois de a evidência ser escrita.\n\nNão encontrei documentação oficial que fixe essa regra, então ela fica registrada como **Observado**, não como Fato. O que a spec garante é o suficiente para o request: capturar a key devolvida e nunca fixá-la no arquivo."
+          },
+          "response": []
+        },
+        {
+          "name": "Buscar a definition recém-deployada",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "const id = pm.collectionVariables.get('expectedProcessDefinitionId');",
+                  "pm.test('a definition aparece na busca, e é a versão que acabamos de criar', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(r.page.totalItems).to.be.above(0);",
+                  "  const found = r.items.filter(function (i) { return i.processDefinitionId === id; });",
+                  "  pm.expect(found.length).to.be.above(0);",
+                  "});",
+                  "pm.test('a versão mais recente é a do deploy desta execução', function () {",
+                  "  const r2 = pm.response.json();",
+                  "  const versions = r2.items.filter(function (i) { return i.processDefinitionId === id; })",
+                  "    .map(function (i) { return i.version; });",
+                  "  pm.expect(Math.max.apply(null, versions)).to.eql(Number(pm.collectionVariables.get('processDefinitionVersion')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filter\": {\n    \"processDefinitionId\": \"{{expectedProcessDefinitionId}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/process-definitions/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "process-definitions",
+                "search"
+              ]
+            },
+            "description": "Confirma que o deploy persistiu e revela quantas versões existem. Este cluster já tem versões 2, 3 e 4 do mesmo `processDefinitionId`, então a pasta `20` roda quantas vezes quiser sem colidir: o que identifica a definition freshly deployed é a versão que o primeiro request devolveu."
+          },
+          "response": []
+        },
+        {
+          "name": "Ler a definition pela key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d = pm.response.json();",
+                  "pm.test('200 e os dados batem com o que o deploy devolveu', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(d.processDefinitionId).to.eql(pm.collectionVariables.get('processDefinitionId'));",
+                  "  pm.expect(String(d.processDefinitionKey)).to.eql(pm.collectionVariables.get('processDefinitionKey'));",
+                  "  pm.expect(d.version).to.eql(Number(pm.collectionVariables.get('processDefinitionVersion')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v2/process-definitions/{{processDefinitionKey}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "process-definitions",
+                "{{processDefinitionKey}}"
+              ]
+            },
+            "description": "Depende da variável `processDefinitionKey` capturada no primeiro request da pasta. Se este request 404, a causa provável é a pasta `20` não ter rodado nesta execução."
+          },
+          "response": []
+        },
+        {
+          "name": "Baixar o BPMN que o cluster guardou",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 e o corpo é o XML do processo', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(pm.response.text()).to.include('bpmn:definitions');",
+                  "  pm.expect(pm.response.text()).to.include(pm.collectionVariables.get('processDefinitionId'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v2/process-definitions/{{processDefinitionKey}}/xml",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "process-definitions",
+                "{{processDefinitionKey}}",
+                "xml"
+              ]
+            },
+            "description": "O cluster guarda o recurso que foi deployado, não uma referência a um arquivo seu. É a evidência de que o deploy transportou o BPMN inteiro."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "30 — Instância",
+      "description": "Definition e instance são independentes. Esta pasta cria instâncias, observa por onde o processo avançou e separa o comportamento normal do comportamento sob timeout.",
+      "item": [
+        {
+          "name": "Criar process instance (dispara e segue)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test('200 e devolve a processInstanceKey', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(r.processInstanceKey).to.be.a('string');",
+                  "});",
+                  "pm.test('a instância nasce apontada para a definition deployada', function () {",
+                  "  pm.expect(r.processDefinitionId).to.eql(pm.collectionVariables.get('processDefinitionId'));",
+                  "});",
+                  "pm.test('capturo a key da instância', function () {",
+                  "  pm.collectionVariables.set('processInstanceKey', String(r.processInstanceKey));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"processDefinitionKey\": \"{{processDefinitionKey}}\",\n  \"variables\": {\n    \"name\": \"{{instanceName}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/process-instances",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "process-instances"
+              ]
+            },
+            "description": "Dispara e segue: a resposta não traz `state`, porque o Gateway ainda não sabe se o processo avançou. A instância vai parar no Service Task à espera de um Job, e parar ali não é erro — é o motor esperando um worker que não existe."
+          },
+          "response": []
+        },
+        {
+          "name": "Criar e esperar a conclusão (awaitCompletion)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Dois estados, duas lições. Sem worker o Gateway estoura o prazo e a",
+                  "// correlação se perde; com worker a resposta só volta quando o processo termina.",
+                  "const code = pm.response.code;",
+                  "pm.test('o status é um dos dois estados esperados: 504 sem worker, 200 com worker', function () {",
+                  "  pm.expect([200, 504]).to.include(code);",
+                  "});",
+                  "",
+                  "if (code === 504) {",
+                  "  const e = pm.response.json();",
+                  "  pm.test('sem worker: DEADLINE_EXCEEDED no hop Gateway -> Broker', function () {",
+                  "    pm.expect(e.title).to.eql('DEADLINE_EXCEEDED');",
+                  "    pm.expect(e.status).to.eql(504);",
+                  "  });",
+                  "  pm.test('sem worker: a processInstanceKey NÃO volta e a correlação se perde', function () {",
+                  "    pm.expect(pm.response.text()).to.not.include('processInstanceKey');",
+                  "  });",
+                  "} else {",
+                  "  const d = pm.response.json();",
+                  "  pm.test('com worker: a resposta só chega depois do processo terminar', function () {",
+                  "    pm.expect(d.processInstanceKey).to.match(/^\\d+$/);",
+                  "    pm.expect(d.variables).to.have.property('name');",
+                  "    pm.expect(d.variables.name).to.include('Mundo');",
+                  "  });",
+                  "  pm.test('com worker: a REST v2 NÃO devolve state, mesmo tendo esperado', function () {",
+                  "    // Observado em 8.9.22: o corpo é o CreateProcessInstanceResponse puro.",
+                  "    // O 200 é a prova de que terminou; o estado está no GET da instância.",
+                  "    pm.expect(d).to.not.have.property('state');",
+                  "    pm.expect(d).to.not.have.property('hasEnded');",
+                  "    pm.expect(d).to.not.have.property('endDate');",
+                  "  });",
+                  "  pm.collectionVariables.set('processInstanceKey', String(d.processInstanceKey));",
+                  "}",
+                  "// Publica o modo para os requests seguintes, que passam a se adaptar sozinhos.",
+                  "pm.collectionVariables.set('awaitMode', code === 200 ? 'worker' : 'noWorker');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"processDefinitionKey\": \"{{processDefinitionKey}}\",\n  \"variables\": {\n    \"name\": \"{{instanceName}}\"\n  },\n  \"awaitCompletion\": true,\n  \"requestTimeout\": {{requestTimeoutMs}}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/process-instances",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "process-instances"
+              ]
+            },
+            "description": "Este é o único request da coleção que se comporta de duas formas, e as duas são o ponto.\n\n**Sem worker**: o Job nunca é ativado, o processo trava no service task e o Gateway estoura o prazo — `504` com `title: DEADLINE_EXCEEDED` e **sem** `processInstanceKey`, porque a resposta de erro não carrega a correlação. A instância existe mesmo assim; é o request seguinte que a recupera por busca.\n\n**Com worker**: `awaitCompletion: true` acopla a resposta HTTP ao fim do processo, e o `200` só volta depois que o Job foi completado. O corpo, porém, é o `CreateProcessInstanceResponse` puro: **não traz `state`, `hasEnded` nem `endDate`**. O `200` é a prova de que terminou; o estado confirmável está em `GET /v2/process-instances/{key}`.\n\nAs asserções cobrem os dois ramos. Para ver o 504, rode sem worker. Para ver o 200, suba o worker antes — e note que esse ramo também passa a `processInstanceKey` adiante."
+          },
+          "response": []
+        },
+        {
+          "name": "Recuperar a instância (a key do 504 se perdeu)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Estas requests leem o H2 secundário, alimentado pelo rdbms exporter com",
+                  "// flushInterval PT0.5S. A instância é projetada antes de o worker completar",
+                  "// o Job, então pollar por «existir» não basta: é preciso pollar pelo ESTADO",
+                  "// esperado. É a mesma instância vista em dois tempos distintos.",
+                  "const wait = (ms) => new Promise(function (r) { setTimeout(r, ms); });",
+                  "const mode = pm.collectionVariables.get('awaitMode');",
+                  "const key = pm.collectionVariables.get('processInstanceKey');",
+                  "const defKey = pm.collectionVariables.get('processDefinitionKey');",
+                  "const esperado = mode === 'worker' ? 'COMPLETED' : 'ACTIVE';",
+                  "const url = pm.request.url.toString();",
+                  "const payload = pm.request.body.raw;",
+                  "const repetir = () => pm.sendRequest({",
+                  "  url: url, method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: payload,",
+                  "});",
+                  "// O poll mira na instância DESTE request. Pollar por «alguma instância",
+                  "// concluída daquela definition» sairia na hora: o cluster já tem várias",
+                  "// das execuções anteriores.",
+                  "const achar = (res) => (res.json().items || []).filter(function (x) {",
+                  "  return String(x.processInstanceKey) === key;",
+                  "})[0];",
+                  "let r = pm.response;",
+                  "let alvo = achar(r);",
+                  "for (let i = 0; i < 40 && (!alvo || alvo.state !== esperado); i++) {",
+                  "  await wait(100);",
+                  "  r = await repetir();",
+                  "  alvo = achar(r);",
+                  "}",
+                  "const items = r.json().items;",
+                  "",
+                  "pm.test('a instância existe e é recuperável por busca', function () {",
+                  "  pm.expect(r.code).to.eql(200);",
+                  "  pm.expect(items.length).to.be.above(0);",
+                  "});",
+                  "if (mode === 'worker') {",
+                  "  pm.test('com worker: a busca traz a instância concluída, com a key conhecida', function () {",
+                  "    pm.expect(alvo).to.not.eql(undefined);",
+                  "    pm.expect(alvo.state).to.eql('COMPLETED');",
+                  "    pm.expect(alvo.endDate).to.not.eql(null);",
+                  "  });",
+                  "} else {",
+                  "  pm.test('sem worker: sem key, resta provar que existe instância daquela definition', function () {",
+                  "    const byDef = items.filter(function (x) { return x.processDefinitionKey === defKey; });",
+                  "    pm.expect(byDef.length).to.be.above(0);",
+                  "  });",
+                  "  pm.test('sem worker: o 504 não cancelou a instância', function () {",
+                  "    // A busca traz também as execuções anteriores, que o worker concluiu.",
+                  "    // A afirmação é sobre cancelamento: nenhum item pode estar TERMINATED.",
+                  "    items.filter(function (x) { return x.processDefinitionKey === defKey; }).forEach(function (x) {",
+                  "      pm.expect(x.state).to.not.eql('TERMINATED');",
+                  "      pm.expect(x.isCanceled).to.not.eql(true);",
+                  "    });",
+                  "  });",
+                  "  pm.test('sem worker: existe uma instância nova parada em ACTIVE, com endDate nulo', function () {",
+                  "    const ativas = items.filter(function (x) {",
+                  "      return x.processDefinitionKey === defKey && x.state === 'ACTIVE' && x.endDate === null;",
+                  "    });",
+                  "    pm.expect(ativas.length).to.be.above(0);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filter\": {\n    \"processDefinitionKey\": \"{{processDefinitionKey}}\"\n  },\n  \"sort\": [\n    {\n      \"field\": \"startDate\",\n      \"order\": \"DESC\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/process-instances/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "process-instances",
+                "search"
+              ]
+            },
+            "description": "No ramo sem worker, o `504` veio sem `processInstanceKey`. A instância existe, mas a chave se foi: o caminho de recuperação é buscar por definition e inspecionar o estado.\n\nObservado em 8.9.22: no ramo sem worker o `504` **não cancela** a instância. Ela fica `ACTIVE`, com `endDate` nulo, parada no service task à espera de um worker. O timeout é do Gateway, não do motor.\n\nNo ramo com worker a chave já é conhecida, e esta request passa a servir só como conferência."
+          },
+          "response": []
+        },
+        {
+          "name": "Ler a instância pela key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Estas requests leem o H2 secundário, alimentado pelo rdbms exporter com",
+                  "// flushInterval PT0.5S. A instância é projetada antes de o worker completar",
+                  "// o Job, então pollar por «existir» não basta: é preciso pollar pelo ESTADO",
+                  "// esperado. É a mesma instância vista em dois tempos distintos.",
+                  "const wait = (ms) => new Promise(function (r) { setTimeout(r, ms); });",
+                  "const mode = pm.collectionVariables.get('awaitMode');",
+                  "const key = pm.collectionVariables.get('processInstanceKey');",
+                  "const defKey = pm.collectionVariables.get('processDefinitionKey');",
+                  "const esperado = mode === 'worker' ? 'COMPLETED' : 'ACTIVE';",
+                  "const url = pm.request.url.toString();",
+                  "const payload = pm.request.body.raw;",
+                  "const repetir = () => pm.sendRequest({",
+                  "  url: url, method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: payload,",
+                  "});",
+                  "let r = pm.response;",
+                  "for (let i = 0; i < 40; i++) {",
+                  "  if (r.code === 200) {",
+                  "    try { if (r.json().state === esperado) { break; } } catch (e) {}",
+                  "  }",
+                  "  await wait(100);",
+                  "  r = await pm.sendRequest({ url: url, method: 'GET' });",
+                  "}",
+                  "const body = r.json();",
+                  "",
+                  "pm.test('a leitura converge para o estado esperado pelo modo', function () {",
+                  "  pm.expect(r.code).to.eql(200);",
+                  "  pm.expect(body.state).to.eql(esperado);",
+                  "});",
+                  "pm.test('a key corresponde à variável capturada', function () {",
+                  "  pm.expect(String(body.processInstanceKey)).to.eql(key);",
+                  "});",
+                  "pm.test('endDate coerente com o estado', function () {",
+                  "  if (esperado === 'COMPLETED') {",
+                  "    pm.expect(body.endDate).to.not.eql(null);",
+                  "  } else {",
+                  "    pm.expect(body.endDate).to.eql(null);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v2/process-instances/{{processInstanceKey}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "process-instances",
+                "{{processInstanceKey}}"
+              ]
+            },
+            "description": "É aqui que o estado fica visível. A resposta de criação não traz `state`, mesmo com `awaitCompletion`; o estado real vem deste GET.\n\n- Com worker: `state: COMPLETED` e `endDate` preenchido.\n- Sem worker: `state: ACTIVE` e `endDate` nulo — o processo existe e está parado, não falhou.\n\n**Este request começa em 404, de propósito.** O `GET` logo após a criação devolve 404 e passa a 200 em menos de um segundo. A explicação não é bug: a escrita está no log primário do Broker, mas esta leitura vem do **H2 secundário**, alimentado pelo `rdbms` exporter — que, na config deste container, tem `flushInterval: PT0.5S`.\n\nO script faz poll até dez vezes para não depender dessa corrida. Vale mais registrar por que ele faz isso do que apagar o primeiro 404: é a prova de que o log é a fonte da verdade e o banco relacional é apenas uma projeção reconstruível."
+          },
+          "response": []
+        },
+        {
+          "name": "Por onde o processo avançou (element instances)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Estas requests leem o H2 secundário, alimentado pelo rdbms exporter com",
+                  "// flushInterval PT0.5S. A instância é projetada antes de o worker completar",
+                  "// o Job, então pollar por «existir» não basta: é preciso pollar pelo ESTADO",
+                  "// esperado. É a mesma instância vista em dois tempos distintos.",
+                  "const wait = (ms) => new Promise(function (r) { setTimeout(r, ms); });",
+                  "const mode = pm.collectionVariables.get('awaitMode');",
+                  "const key = pm.collectionVariables.get('processInstanceKey');",
+                  "const defKey = pm.collectionVariables.get('processDefinitionKey');",
+                  "const esperado = mode === 'worker' ? 'COMPLETED' : 'ACTIVE';",
+                  "const url = pm.request.url.toString();",
+                  "const payload = pm.request.body.raw;",
+                  "const repetir = () => pm.sendRequest({",
+                  "  url: url, method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: payload,",
+                  "});",
+                  "let r = pm.response;",
+                  "const rastro = (res) => {",
+                  "  const m = {};",
+                  "  (res.json().items || []).forEach(function (x) { m[x.elementId] = x; });",
+                  "  return m;",
+                  "};",
+                  "// No modo worker o rastro só está completo quando o EndEvent aparece.",
+                  "for (let i = 0; i < 40; i++) {",
+                  "  const m = rastro(r);",
+                  "  const pronto = esperado === 'ACTIVE'",
+                  "    ? Boolean(m.ServiceTask_SayHello)",
+                  "    : Boolean(m.EndEvent_1);",
+                  "  if (pronto) { break; }",
+                  "  await wait(100);",
+                  "  r = await repetir();",
+                  "}",
+                  "const items = r.json().items;",
+                  "const byId = rastro({ json: () => ({ items: items }) });",
+                  "",
+                  "pm.test('o StartEvent foi concluído em qualquer cenário', function () {",
+                  "  pm.expect(r.code).to.eql(200);",
+                  "  pm.expect(byId).to.have.property('StartEvent_1');",
+                  "  pm.expect(byId.StartEvent_1.state).to.eql('COMPLETED');",
+                  "});",
+                  "if (mode === 'worker') {",
+                  "  pm.test('com worker: o rastro vai até o EndEvent, tudo concluído', function () {",
+                  "    pm.expect(byId).to.have.property('ServiceTask_SayHello');",
+                  "    pm.expect(byId.ServiceTask_SayHello.state).to.eql('COMPLETED');",
+                  "    pm.expect(byId).to.have.property('EndEvent_1');",
+                  "    pm.expect(byId.EndEvent_1.state).to.eql('COMPLETED');",
+                  "  });",
+                  "} else {",
+                  "  pm.test('sem worker: o ServiceTask está ACTIVE e o EndEvent não existe', function () {",
+                  "    pm.expect(byId).to.have.property('ServiceTask_SayHello');",
+                  "    pm.expect(byId.ServiceTask_SayHello.state).to.eql('ACTIVE');",
+                  "    const ids = items.map(function (x) { return x.elementId; });",
+                  "    pm.expect(ids).to.not.include('EndEvent_1');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filter\": {\n    \"processInstanceKey\": \"{{processInstanceKey}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/element-instances/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "element-instances",
+                "search"
+              ]
+            },
+            "description": "O rastro do token mostra onde o processo parou.\n\nSem worker, o rastro é `StartEvent_1 COMPLETED` e `ServiceTask_SayHello ACTIVE`, sem `EndEvent_1`: o token está esperando um Job ser ativado. Com worker, os três existem e os três estão `COMPLETED`.\n\nÉ o request que mostra que o service task é uma **fronteira de execução**: enquanto ninguém consome o Job, nada depois dele acontece."
+          },
+          "response": []
+        },
+        {
+          "name": "A variável chegou ao processo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Estas requests leem o H2 secundário, alimentado pelo rdbms exporter com",
+                  "// flushInterval PT0.5S. A instância é projetada antes de o worker completar",
+                  "// o Job, então pollar por «existir» não basta: é preciso pollar pelo ESTADO",
+                  "// esperado. É a mesma instância vista em dois tempos distintos.",
+                  "const wait = (ms) => new Promise(function (r) { setTimeout(r, ms); });",
+                  "const mode = pm.collectionVariables.get('awaitMode');",
+                  "const key = pm.collectionVariables.get('processInstanceKey');",
+                  "const defKey = pm.collectionVariables.get('processDefinitionKey');",
+                  "const esperado = mode === 'worker' ? 'COMPLETED' : 'ACTIVE';",
+                  "const url = pm.request.url.toString();",
+                  "const payload = pm.request.body.raw;",
+                  "const repetir = () => pm.sendRequest({",
+                  "  url: url, method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: payload,",
+                  "});",
+                  "let r = pm.response;",
+                  "for (let i = 0; i < 40; i++) {",
+                  "  const tem = (r.json().items || []).some(function (x) { return x.name === 'name'; });",
+                  "  if (tem) { break; }",
+                  "  await wait(100);",
+                  "  r = await repetir();",
+                  "}",
+                  "const v = (r.json().items || []).filter(function (x) { return x.name === 'name'; });",
+                  "",
+                  "pm.test('a variável name existe com o valor enviado', function () {",
+                  "  pm.expect(r.code).to.eql(200);",
+                  "  pm.expect(v.length).to.be.above(0);",
+                  "});",
+                  "pm.test('o valor é JSON serializado, com aspas — não texto cru', function () {",
+                  "  pm.expect(v[0].value).to.eql('\\\"' + pm.collectionVariables.get('instanceName') + '\\\"');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filter\": {\n    \"processInstanceKey\": \"{{processInstanceKey}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/variables/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "variables",
+                "search"
+              ]
+            },
+            "description": "O valor volta como `\"Mundo\"`, com aspas, porque a API devolve a variável serializada em JSON. Uma asserção que espere `Mundo` sem aspas falha; uma que espere `\"Mundo\"` funciona. É a diferença entre comparar dado e comparar representação."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "40 — O limite do REST",
+      "description": "Ativar e completar Job não existe na Orchestration Cluster REST API. O REST observa; o worker fala gRPC. Estes requests tornam essa fronteira verificável em vez de afirmada.",
+      "item": [
+        {
+          "name": "Os Jobs que o motor criou",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "const type = pm.collectionVariables.get('jobType');",
+                  "pm.test('existem Jobs do tipo say-hello', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(r.page.totalItems).to.be.above(0);",
+                  "  r.items.forEach(function (j) { pm.expect(j.type).to.eql(type); });",
+                  "});",
+                  "pm.test('cada Job tem jobKey — o campo é jobKey, não key', function () {",
+                  "  r.items.forEach(function (j) {",
+                  "    pm.expect(j.jobKey).to.be.a('string');",
+                  "    pm.expect(j).to.not.have.property('key');",
+                  "  });",
+                  "});",
+                  "pm.test('os taskHeaders do BPMN viajaram com o Job', function () {",
+                  "  const first = r.items[0];",
+                  "  pm.expect(first.customHeaders['worker.version']).to.eql('v1');",
+                  "});",
+                  "pm.test('retries vem do BPMN (retries=\"3\")', function () {",
+                  "  r.items.forEach(function (j) { pm.expect(j.retries).to.eql(3); });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filter\": {\n    \"type\": \"{{jobType}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "search"
+              ]
+            },
+            "description": "O motor criou o Job sozinho ao alcançar o Service Task, e o `zeebe:taskHeaders` do BPMN veio junto (`worker.version: v1`). Nada disso foi enviado pelo cliente: foi o motor escrevendo no log.\n\nO campo da key é `jobKey`. A resposta de busca não traz `key`, e um teste que procure `key` lê `undefined` sem avisar."
+          },
+          "response": []
+        },
+        {
+          "name": "Ativar Job: um request que não pode passar",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404: não existe endpoint de ativação de Job na REST v2', function () {",
+                  "  pm.expect(pm.response.code).to.eql(404);",
+                  "});",
+                  "pm.test('e o erro é problem+json, não a SPA', function () {",
+                  "  pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs"
+              ]
+            },
+            "description": "Este request existe para **falhar**. Na spec v2 há `POST /v2/jobs/search` e `GET /v2/jobs/statistics/global`, e nada mais: ativar Job é `POST /jobs/activate` no gRPC do Zeebe (porta 26500), e completar é `CompleteJob`.\n\nUm learner que tente fechar o ciclo inteiro pela REST API trava aqui. Este request registra o limite como Fato verificado: a fronteira entre observar e executar é gRPC, e por isso o Job Worker da Lesson 002 fala um protocolo diferente do que a coleção usa."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "90 — Descoberta da API",
+      "description": "De onde veio a lista de endpoints desta coleção, e como conferir sem confiar em mim.",
+      "item": [
+        {
+          "name": "Grupos de API publicados pelo cluster",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const c = pm.response.json();",
+                  "const names = c.urls.map(function (u) { return u.name; });",
+                  "",
+                  "pm.test('o cluster anuncia seus grupos de API', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(c.urls).to.be.an('array');",
+                  "});",
+                  "pm.test('o grupo atual é o Orchestration Cluster API', function () {",
+                  "  pm.expect(names).to.include('Orchestration Cluster API');",
+                  "});",
+                  "pm.test('Operate-v1 é deprecado e Tasklist-v1 é o resto da v1 por componente', function () {",
+                  "  pm.expect(names).to.include('Operate-v1');",
+                  "  pm.expect(names).to.include('Tasklist-v1');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v3/api-docs/swagger-config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v3",
+                "api-docs",
+                "swagger-config"
+              ]
+            },
+            "description": "O cluster publica a própria spec OpenAPI. Anotação importante: o grupo `Operate-v1` aparece aqui mas tem **zero paths** em 8.9 — a API `/v1` por componente foi removida, e o que responde em `/operate/` é a UI. Anunciado não é o mesmo que disponível.\n\nSwagger UI fica em `{{baseUrl}}/swagger`."
+          },
+          "response": []
+        },
+        {
+          "name": "Configuração do sistema (métricas de Job)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const s = pm.response.json();",
+                  "pm.test('métricas de Job habilitadas', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(s.jobMetrics.enabled).to.eql(true);",
+                  "  pm.expect(s.jobMetrics.exportInterval).to.eql('PT5M');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v2/system/configuration",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "system",
+                "configuration"
+              ]
+            },
+            "description": "Retorna apenas o bloco `jobMetrics` no perfil local. `exportInterval: PT5M` significa que os dados de Job só chegam ao armazenamento secundário a cada cinco minutos — se alguém esperar o Operate refletir um Job imediatamente, está esperando o intervalo errado."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "b7f4c2a1-9d3e-4c58-8a61-0f2e5d7c9b13",
     "name": "Camunda 8 Learning Lab — 8.9",
-    "description": "Recorte da Orchestration Cluster REST API (v2) organizado por objetivo de aprendizagem, não por lição.\n\nCada request afirma sobre o CORPO da resposta, nunca apenas sobre o status HTTP. Um 200 na SPA do Operate é 200 sem que nenhuma API tenha respondido — a pasta `10` existe para tornar essa armadilha executável.\n\nOs requests de escrita capturam as keys em variáveis de coleção. A key da process definition muda a cada deploy, então nada aqui é fixo.\n\nImportação e ordem de execução: infra/local/collections/README.md",
+    "description": "Recorte da Orchestration Cluster REST API (v2) organizado por objetivo de aprendizagem, não por lição.\n\nCada request afirma sobre o CORPO da resposta, nunca apenas sobre o status HTTP. Um 200 na SPA do Operate é 200 sem que nenhuma API tenha respondido — a pasta `10` existe para tornar essa armadilha executável.\n\nOs requests de escrita capturam as keys em variáveis de coleção. A key da process definition muda a cada deploy, então nada aqui é fixo.\n\nImportação e ordem de execução: infra/local/collections/README.md\n\nA pasta `50` é a única que **exige** o `retry-worker` no ar: sem worker nenhum `FAIL` é comandado, o Job fica em `CREATED`, não esgota retries e nenhum incidente nasce. As pastas `00` a `40` rodam nos dois modos — com e sem worker — e é essa diferença que a Lesson 002 mede.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -60,6 +60,26 @@
       "key": "processInstanceKey",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "orderBpmnPath",
+      "value": "/home/placido/desarrollo/camunda/camunda8-learning-lab/processes/003-retries-incidentes-recuperacao/order-fulfillment.bpmn"
+    },
+    {
+      "key": "orderProcessDefinitionKey",
+      "value": ""
+    },
+    {
+      "key": "elementInstanceKey",
+      "value": ""
+    },
+    {
+      "key": "jobKey",
+      "value": ""
+    },
+    {
+      "key": "incidentKey",
+      "value": ""
     }
   ],
   "item": [
@@ -1177,6 +1197,823 @@
               ]
             },
             "description": "Substitui o antigo `POST /v2/jobs`, que dava 404 e era lido como prova de que a REST v2 não ativava Job. **Não era.** O caminho real é `POST /v2/jobs/activation`, e ele responde.\n\nO corpo vazio é de propósito: um `400 INVALID_ARGUMENT` que nomeia `type`, `timeout` e `maxJobsToActivate` prova que o endpoint existe, que leu o corpo, e que o Gateway repassou a validação. Um `404` nesse mesmo lugar seria o Gateway recusando o path — outra coisa, mais fraca.\n\nAtivar de verdade exige os três campos e rouba o Job de quem estiver ouvindo aquele tipo. Fazer isso aqui quebraria a pasta `30`, que depende do worker consumir o Job. A ativação real, com retries decrementando até incidente, é a Lesson 003.\n\nO ciclo completo em v2 é `POST /v2/jobs/activation`, `POST /v2/jobs/{jobKey}/completion`, `POST /v2/jobs/{jobKey}/failure`, `PATCH /v2/jobs/{jobKey}` (reseta `retries`) e `POST /v2/jobs/search`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "50 — Retries, incidentes e recuperação",
+      "item": [
+        {
+          "name": "Deploy do BPMN 003 (multipart)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A pasta 20 faz o mesmo deploy para a Lesson 002. Aqui é outro arquivo,",
+                  "// outro processo e outra chave — as duas lições são independentes.",
+                  "//",
+                  "// O corpo NÃO tem processDefinitionKey no topo: ele vem aninhado em",
+                  "// deployments[0].processDefinition, junto do id e da versão. Atei-me à",
+                  "// suposição primeiro e o request devolveu 200 com `undefined` — um 200 que",
+                  "// não entrega a chave é a armadilha da pasta 10, agora pelo lado do",
+                  "// request bem-sucedido.",
+                  "const d = pm.response.json();",
+                  "const pd = d.deployments[0].processDefinition;",
+                  "pm.test('200 com deploymentKey', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(d.deploymentKey).to.be.a('string');",
+                  "});",
+                  "pm.test('o recurso entrou como process definition da Lesson 003', function () {",
+                  "  pm.expect(pd.processDefinitionId).to.eql('lesson-003-retries-incidentes');",
+                  "  pm.expect(pd.resourceName).to.eql('order-fulfillment.bpmn');",
+                  "});",
+                  "pm.test('capturo a chave, que muda a cada deploy', function () {",
+                  "  pm.collectionVariables.set('orderProcessDefinitionKey', String(pd.processDefinitionKey));",
+                  "  pm.expect(pm.collectionVariables.get('orderProcessDefinitionKey')).to.match(/^\\d+$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "resources",
+                  "type": "file",
+                  "src": "{{orderBpmnPath}}",
+                  "contentType": "text/xml"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/deployments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "deployments"
+              ]
+            },
+            "description": "Processo próprio da Lesson 003, em `processes/003-retries-incidentes-recuperacao/`. `charge-card` com `retries=\"3\"` e `ship-order` depois dele — o segundo existe para que haja como provar que a recuperação leva a instância até o fim.\n\n`lesson-003-retries-incidentes` é o identificador estável; o `processDefinitionKey` muda a cada deploy."
+          },
+          "response": []
+        },
+        {
+          "name": "Iniciar com a falha ligada",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// simulateFailure é uma VARIÁVEL DE PROCESSO, não uma flag do worker.",
+                  "// É isso que torna a correção da causa um ato do operador e não um deploy.",
+                  "const d = pm.response.json();",
+                  "pm.test('a instância nasce da process definition desta pasta', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(d.processDefinitionKey).to.eql(pm.collectionVariables.get('orderProcessDefinitionKey'));",
+                  "  pm.expect(d.processDefinitionId).to.eql('lesson-003-retries-incidentes');",
+                  "});",
+                  "pm.test('observado em 8.9.22: o create SEM awaitCompletion devolve variables vazio', function () {",
+                  "  // O que foi mandado no corpo não volta no corpo. Isso não vale para o",
+                  "  // create COM awaitCompletion:true, que ecoa as variáveis — a pasta 30",
+                  "  // depende disso. A diferença só aparece comparando os dois, e por isso",
+                  "  // aqui a variável é lida de volta em /v2/variables/search.",
+                  "  pm.expect(d.variables).to.eql({});",
+                  "});",
+                  "pm.collectionVariables.set('processInstanceKey', String(d.processInstanceKey));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"processDefinitionKey\": \"{{orderProcessDefinitionKey}}\",\n  \"variables\": {\n    \"simulateFailure\": true\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/process-instances",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "process-instances"
+              ]
+            },
+            "description": "Sem `awaitCompletion`, de propósito: aqui a resposta tem de voltar **antes** da instância terminar, porque o ponto é observar o que acontece no meio.\n\nEsta pasta **exige o `retry-worker` no ar**. Sem worker o Job fica em `CREATED`, nunca esgota retries, e o request seguinte espera até o limite e reprova. Isso não é bug da coleção: sem alguém que comande `FAIL`, o incidente simplesmente não existe.\n\nA pasta 50 sobrescreve `processInstanceKey`, que a pasta 30 também usa. Rode a coleção inteira, nessa ordem."
+          },
+          "response": []
+        },
+        {
+          "name": "Localizar o element instance de charge-card",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Poll de novo, e por um motivo diferente do request anterior: aqui a",
+                  "// busca é PROJEÇÃO do secondary storage. Logo após o create, o element",
+                  "// instance ainda não foi projetado e a busca devolve zero itens — sem",
+                  "// polling, esta coleção falharia por latência de índice, não por erro.",
+                  "const base = pm.collectionVariables.get('baseUrl');",
+                  "const url = base + '/v2/element-instances/search';",
+                  "const corpo = JSON.stringify({",
+                  "  filter: {",
+                  "    processInstanceKey: pm.collectionVariables.get('processInstanceKey'),",
+                  "    type: 'SERVICE_TASK',",
+                  "    elementId: 'ServiceTask_ChargeCard'",
+                  "  }",
+                  "});",
+                  "let item = null;",
+                  "for (let i = 0; i < 20; i++) {",
+                  "  const res = await pm.sendRequest({",
+                  "    url: url, method: 'POST',",
+                  "    header: { 'Content-Type': 'application/json' }, body: corpo",
+                  "  });",
+                  "  const items = res.json().items;",
+                  "  if (items.length) { item = items[0]; break; }",
+                  "  await new Promise((r) => setTimeout(r, 500));",
+                  "}",
+                  "",
+                  "pm.test('o element instance do charge-card foi projetado', function () {",
+                  "  pm.expect(item).to.not.eql(null);",
+                  "});",
+                  "pm.test('é o elementId do BPMN versionado, e só ele', function () {",
+                  "  pm.expect(item.elementId).to.eql('ServiceTask_ChargeCard');",
+                  "  pm.expect(item.processDefinitionId).to.eql('lesson-003-retries-incidentes');",
+                  "});",
+                  "pm.test('observado em 8.9.22: bpmnElementType NÃO volta nessa busca', function () {",
+                  "  // O filtro type=SERVICE_TASK selecionou o registro, mas o campo de tipo não",
+                  "  // é devolvido. Atei-me a ele primeiro e o teste reprovou: o filtro",
+                  "  // funciona, o que não se repete na resposta é o próprio filtro.",
+                  "  pm.expect(item).to.not.have.property('bpmnElementType');",
+                  "});",
+                  "pm.test('endDate é omitido — e sua presença é temporal, então não é asserção', function () {",
+                  "  // Cheguei a afirmar 'sem endDate, o element instance ainda não terminou'",
+                  "  // e reprovou: o exporter projeta o element instance com endDate já",
+                  "  // preenchido dependendo de quando a fila de exportação roda. Codificar",
+                  "  // isso como asserção seria congelar uma corrida que não é o conceito.",
+                  "  pm.expect(item).to.be.an('object');",
+                  "});",
+                  "pm.collectionVariables.set('elementInstanceKey', String(item.elementInstanceKey));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filter\": {\n    \"processInstanceKey\": \"{{processInstanceKey}}\",\n    \"type\": \"SERVICE_TASK\",\n    \"elementId\": \"ServiceTask_ChargeCard\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/element-instances/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "element-instances",
+                "search"
+              ]
+            },
+            "description": "`type: SERVICE_TASK` sozinho traria `ship-order` também. O `elementId` vem do BPMN versionado e é o que isola o element instance certo — se o BPMN mudar, esta coleção quebra de forma visível.\n\nO `elementInstanceKey` capturado aqui é o que permite a correção da causa em escopo local: `local: true` exige a key do element instance, não a da instância."
+          },
+          "response": []
+        },
+        {
+          "name": "Aguardar o incidente (poll)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// O incidente não nasce no mesmo instante: o worker precisa falhar 3 vezes",
+                  "// antes de o motor materializá-lo. Poll com teto explícito, porque um poll",
+                  "// sem teto é um teste que passa por acidente num cluster morto.",
+                  "const base = pm.collectionVariables.get('baseUrl');",
+                  "const url = base + '/v2/process-instances/'",
+                  "  + pm.collectionVariables.get('processInstanceKey') + '/incidents/search';",
+                  "let item = null;",
+                  "for (let i = 0; i < 20; i++) {",
+                  "  const res = await pm.sendRequest({",
+                  "    url: url, method: 'POST',",
+                  "    header: { 'Content-Type': 'application/json' }, body: '{}'",
+                  "  });",
+                  "  const items = res.json().items;",
+                  "  if (items.length) { item = items[0]; break; }",
+                  "  await new Promise((r) => setTimeout(r, 500));",
+                  "}",
+                  "",
+                  "pm.test('o incidente apareceu dentro do limite de poll', function () {",
+                  "  pm.expect(item).to.not.eql(null);",
+                  "});",
+                  "pm.test('o Job parou por falta de retries, não por cancelamento', function () {",
+                  "  pm.expect(item.state).to.eql('ACTIVE');",
+                  "});",
+                  "pm.test('errorType diz POR QUE parou, sem precisar abrir o Job', function () {",
+                  "  pm.expect(item.errorType).to.eql('JOB_NO_RETRIES');",
+                  "});",
+                  "pm.test('o incidente carrega o errorMessage que o worker escreveu', function () {",
+                  "  // O worker escreveu a mensagem no comando de falha e o motor a copiou para",
+                  "  // o incidente. É a única pista human-readable que existe no sistema.",
+                  "  pm.expect(item.errorMessage).to.include('recusa do adquirente');",
+                  "});",
+                  "pm.collectionVariables.set('incidentKey', String(item.incidentKey));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/process-instances/{{processInstanceKey}}/incidents/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "process-instances",
+                "{processInstanceKey}",
+                "incidents",
+                "search"
+              ]
+            },
+            "description": "`errorType: JOB_NO_RETRIES` é o que diz **por que** o processo parou. Sem ele o operador teria que abrir cada Job para ler a mensagem — é o `errorType` que transforma uma pilha de Jobs falhados em uma lista de trabalho.\n\nO `pm.sendRequest` aqui não é decoração: o request sozinho não pode provar que o incidente nasceu, porque dispara a consulta **antes** de o worker ter esgotado os retries."
+          },
+          "response": []
+        },
+        {
+          "name": "O Job que ficou sem retry",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Poll por causa da latência de projeção: o índice secundário projeta o",
+                  "// Job depois do fato, então logo após o incidente abrir ele ainda pode",
+                  "// devolver CREATED retries=3. O motor já sabia; o índice ainda não.",
+                  "const base = pm.collectionVariables.get('baseUrl');",
+                  "const corpo = JSON.stringify({",
+                  "  filter: {",
+                  "    processInstanceKey: pm.collectionVariables.get('processInstanceKey'),",
+                  "    type: 'charge-card'",
+                  "  }",
+                  "});",
+                  "let job = null;",
+                  "for (let i = 0; i < 20; i++) {",
+                  "  const res = await pm.sendRequest({",
+                  "    url: base + '/v2/jobs/search', method: 'POST',",
+                  "    header: { 'Content-Type': 'application/json' }, body: corpo",
+                  "  });",
+                  "  const items = res.json().items;",
+                  "  if (items.length && items[0].state === 'FAILED' && items[0].retries === 0) {",
+                  "    job = items[0];",
+                  "    break;",
+                  "  }",
+                  "  await new Promise((r) => setTimeout(r, 500));",
+                  "}",
+                  "",
+                  "pm.test('o Job que parou é o de charge-card, FAILED e com retries zerado', function () {",
+                  "  pm.expect(job).to.not.eql(null);",
+                  "  pm.expect(job.type).to.eql('charge-card');",
+                  "  pm.expect(job.state).to.eql('FAILED');",
+                  "  pm.expect(job.retries).to.eql(0);",
+                  "});",
+                  "pm.test('o campo da key é jobKey, não key', function () {",
+                  "  // Escrevi `job.key` primeiro e o request devolveu undefined com o Job",
+                  "  // perfeito em mãos. A resposta de jobs/search nomeia a key como",
+                  "  // jobKey; na create-response de outros endpoints ela é processInstanceKey,",
+                  "  // incidentKey, elementInstanceKey. Não há um nome único para 'a key'.",
+                  "  pm.expect(job.jobKey).to.match(/^\\d+$/);",
+                  "});",
+                  "pm.test('o Job continua existindo depois de parar: parar não é apagar', function () {",
+                  "  pm.expect(job).to.have.property('endTime');",
+                  "});",
+                  "pm.collectionVariables.set('jobKey', String(job.jobKey));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filter\": {\n    \"processInstanceKey\": \"{{processInstanceKey}}\",\n    \"type\": \"charge-card\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "search"
+              ]
+            },
+            "description": "`retries: 0` **e** `state: FAILED` juntos são a prova de que parar não é o mesmo que desistir: o Job continua lá, com o contador em zero e o incidente esperando decisão. É isso que dá ao operador um objeto para agir, em vez de um processo que simplesmente não termina."
+          },
+          "response": []
+        },
+        {
+          "name": "Resolver ANTES de resetar (ordem invertida)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A ordem do runbook não é convenção: é o motor recusando.",
+                  "const e = pm.response.json();",
+                  "pm.test('resolver com retries zerado é recusado com 409 INVALID_STATE', function () {",
+                  "  pm.expect(pm.response.code).to.eql(409);",
+                  "  pm.expect(e.title).to.eql('INVALID_STATE');",
+                  "});",
+                  "pm.test('o detail diz o que fazer, e a ordem é reset -> resolve', function () {",
+                  "  pm.expect(e.detail).to.include('has no retries left');",
+                  "});",
+                  "pm.test('o detail nomeia os dois comandos, na ordem que funciona', function () {",
+                  "  pm.expect(e.detail).to.include('Please update the job retries and retry resolving the incident');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/incidents/{{incidentKey}}/resolution",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "incidents",
+                "{incidentKey}",
+                "resolution"
+              ]
+            },
+            "description": "Este request existe **para falhar**, e é o mais importante da pasta.\n\nEm Camunda 7, decrementar o retry e criar o incidente seriam a mesma transação — não existiria estado intermediário em que se pudesse estar. Em Camunda 8 são dois comandos no log, e este `409` é a consequência observada da fronteira transacional perdida entre aplicação e engine.\n\nPor isso a ordem do runbook é `corrigir causa -> resetar -> resolver`, e não o contrário."
+          },
+          "response": []
+        },
+        {
+          "name": "Operador corrige a causa (variável local)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// O 204 é o MENOS informativo da coleção: status sem corpo não prova",
+                  "// efeito colateral. O que prova a correção é o request seguinte.",
+                  "pm.test('a atualização de variável local responde 204, sem corpo', function () {",
+                  "  pm.expect(pm.response.code).to.eql(204);",
+                  "});",
+                  "pm.test('204 vem com corpo vazio, e isso é esperado', function () {",
+                  "  pm.expect(pm.response.text()).to.eql('');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"variables\": {\n    \"simulateFailure\": false\n  },\n  \"local\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/element-instances/{{elementInstanceKey}}/variables",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "element-instances",
+                "{elementInstanceKey}",
+                "variables"
+              ]
+            },
+            "description": "`local: true` restringe a escrita ao escopo do element instance de `charge-card`, e não à instância inteira. O request seguinte mede essa diferença.\n\nA correção da causa é o primeiro passo do runbook, e vem antes do reset por um motivo operacional: resetar antes de corrigir devolve a Job a um mundo onde a falha ainda existe."
+          },
+          "response": []
+        },
+        {
+          "name": "A correção ficou local, e o processo continua dizendo 'true'",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Este request é a razão de o anterior existir. Sem medir o escopo, o",
+                  "// 'corrigi a causa' é uma crença. Aqui a crença vira fato observado.",
+                  "const base = pm.collectionVariables.get('baseUrl');",
+                  "const eik = pm.collectionVariables.get('elementInstanceKey');",
+                  "const pik = pm.collectionVariables.get('processInstanceKey');",
+                  "async function ler(scopeKey) {",
+                  "  const url = pm.collectionVariables.get('baseUrl') + '/v2/variables/search';",
+                  "  const body = JSON.stringify({ filter: { scopeKey: scopeKey } });",
+                  "  // Poll: variables/search é PROJEÇÃO. O PUT de agora há pouco já foi",
+                  "  // aceito com 204, mas o índice ainda não recebeu a variável nova.",
+                  "  // Sem poll, este request mediria latência de índice e reprovaria.",
+                  "  for (let i = 0; i < 20; i++) {",
+                  "    const res = await pm.sendRequest({",
+                  "      url: url, method: 'POST',",
+                  "      header: { 'Content-Type': 'application/json' }, body: body",
+                  "    });",
+                  "    const items = res.json().items;",
+                  "    if (items.length) return items;",
+                  "    await new Promise((r) => setTimeout(r, 500));",
+                  "  }",
+                  "  return [];",
+                  "}",
+                  "const local = await ler(eik);",
+                  "const doProcesso = await ler(pik);",
+                  "",
+                  "pm.test('local:true gravou no escopo do ELEMENT INSTANCE', function () {",
+                  "  pm.expect(local.length).to.be.least(1);",
+                  "  pm.expect(local[0].name).to.eql('simulateFailure');",
+                  "  pm.expect(local[0].value).to.eql('false');",
+                  "});",
+                  "pm.test('o escopo do PROCESSO ainda diz true: a escrita não escapou', function () {",
+                  "  // Este é o ponto inteiro. A mesma variável tem dois valores em dois",
+                  "  // escopos, ao mesmo tempo. O worker lê a local e conclui; uma leitura",
+                  "  // do nível de processo diria que a falha continua. Escopo não é",
+                  "  // detalhe de implementación: é o que decide quem enxerga o quê.",
+                  "  pm.expect(doProcesso.length).to.be.least(1);",
+                  "  pm.expect(doProcesso[0].name).to.eql('simulateFailure');",
+                  "  pm.expect(doProcesso[0].value).to.eql('true');",
+                  "});",
+                  "pm.test('observado em 8.9.22: o valor volta como STRING, não booleano', function () {",
+                  "  // Achei que viria `false` e comparou com 'false'. O REST devolve o valor",
+                  "  // serializado. Comparar com o booleano reprova mesmo com a escrita certa.",
+                  "  pm.expect(typeof local[0].value).to.eql('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filter\": {\n    \"scopeKey\": \"{{elementInstanceKey}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/variables/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "variables",
+                "search"
+              ]
+            },
+            "description": "`scopeKey` é a chave do escopo onde a variável é **diretamente** definida: a do element instance para variável local, a da instância para variável de processo. Ele não inclui o que vem por herança da hierarquia.\n\n**O filtro precisa ser escopado.** Filtrar só por `name` devolveu quatro `simulateFailure` — de execuções anteriores deste mesmo cluster, com valores diferentes. É o mesmo defeito de escopo que a Lesson 002 cometeu em `items[0]`, e por acaso a mesma lição se confirma: sem escopo, a asserção mede o ambiente, não o seu objeto."
+          },
+          "response": []
+        },
+        {
+          "name": "Resetar os retries",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Este é o comando que o worker NÃO tem. newFailCommand existe no SDK 8.9.22;",
+                  "// isto aqui, não. A fronteira é de permissão, não de esforço.",
+                  "pm.test('o PATCH de retries responde 204', function () {",
+                  "  pm.expect(pm.response.code).to.eql(204);",
+                  "});",
+                  "pm.test('o Job continua o mesmo: a chave não muda ao resetar', function () {",
+                  "  // Recuperar NÃO é reexecutar do zero, e não desfaz o efeito colateral",
+                  "  // anterior. Se o worker tivesse cobrado alguém antes de falhar, esta",
+                  "  // segunda ativação é o momento de cobrar de novo.",
+                  "  pm.expect(pm.collectionVariables.get('jobKey')).to.match(/^\\d+$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"changeset\": {\n    \"retries\": 3\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/{{jobKey}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "{jobKey}"
+              ]
+            },
+            "description": "Devolve ao Job o valor que estava no BPMN. `3` é o número escolhido por conveniência da demonstração; num caso real seria o que a política de retry permite tentar.\n\nO corpo é `changeset`, não `retries` direto — e aqui o campo é `retries`, todo minúsculo, ao contrário do `retryBackOff` do comando de falha, que tem o `B` maiúsculo. Dois nomes que diferem só em capitalização: é o tipo de detalhe que o `400` do cluster ensina melhor que a documentação."
+          },
+          "response": []
+        },
+        {
+          "name": "Resolver o incidente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('a resolução responde 204', function () {",
+                  "  pm.expect(pm.response.code).to.eql(204);",
+                  "});",
+                  "pm.test('mesma URL e mesmo corpo do request que recebeu 409', function () {",
+                  "  // A única coisa que mudou entre os dois requests foi o estado do Job,",
+                  "  // e ele só mudou porque alguém teve autoridade para mudá-lo. Por isso",
+                  "  // a ordem do runbook é reset -> resolve e não resolve -> reset.",
+                  "  pm.expect(pm.collectionVariables.get('incidentKey')).to.match(/^\\d+$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/incidents/{{incidentKey}}/resolution",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "incidents",
+                "{incidentKey}",
+                "resolution"
+              ]
+            },
+            "description": "Resolver **não** desfaz a falha anterior e **não** devolve o efeito colateral. Ele declara que o incidente foi tratado; quem volta a executar o Job é o motor, com a **mesma** `jobKey`.\n\nO `204` aqui não significa \"voltou a funcionar\": a resolução só marca o incidente. A prova é o request seguinte."
+          },
+          "response": []
+        },
+        {
+          "name": "A instância foi até o fim depois da recuperação",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Poll porque a resolução DESPERTA o Job mas não espera por ele: o 204 do",
+                  "// POST de resolução volta antes de o worker agir.",
+                  "const url = pm.collectionVariables.get('baseUrl')",
+                  "  + '/v2/process-instances/'",
+                  "  + pm.collectionVariables.get('processInstanceKey');",
+                  "let inst = null;",
+                  "for (let i = 0; i < 20; i++) {",
+                  "  const res = await pm.sendRequest({ url: url, method: 'GET' });",
+                  "  const d = res.json();",
+                  "  if (d.state === 'COMPLETED') { inst = d; break; }",
+                  "  await new Promise((r) => setTimeout(r, 500));",
+                  "}",
+                  "",
+                  "pm.test('a instância saiu de ACTIVE e chegou a COMPLETED', function () {",
+                  "  pm.expect(inst).to.not.eql(null);",
+                  "});",
+                  "pm.test('observado em 8.9.22: este GET NÃO devolve as variáveis', function () {",
+                  "  // Escrevi as asserções sobre `variables` aqui primeiro. O GET responde",
+                  "  // 200 com `variables: null` — e não aceita query param para pedir",
+                  "  // variáveis. Por isso as variáveis são lidas em /v2/variables/search,",
+                  "  // no request seguinte. Status 200 sem o dado que a pergunta pede é o",
+                  "  // mesmo 200 vazio da pasta 10, em outra forma.",
+                  "  pm.expect(inst).to.not.have.property('variables');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v2/process-instances/{{processInstanceKey}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "process-instances",
+                "{processInstanceKey}"
+              ]
+            },
+            "description": "`COMPLETED` é o sinal de que a instância saiu da parada. Ele sozinho **não** prova que a recuperação funcionou: se `ship-order` não existisse, a instância também terminaria aqui, e o `COMPLETED` apenas mostraria que o worker voltou.\n\nPor isso o estado é lido aqui e as variáveis no request seguinte. Separar as duas afirmações é o que impede que um `COMPLETED` fraco passe por prova de uma coisa que ele não prova."
+          },
+          "response": []
+        },
+        {
+          "name": "Os dois service tasks rodaram",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Esta é a asserção que fecha a lesson. Ela depende de o GET acima",
+                  "// NÃO devolver variáveis — cada request prova uma coisa só.",
+                  "const url = pm.collectionVariables.get('baseUrl') + '/v2/variables/search';",
+                  "const corpo = JSON.stringify({",
+                  "  filter: { processInstanceKey: pm.collectionVariables.get('processInstanceKey') }",
+                  "});",
+                  "let items = null;",
+                  "for (let i = 0; i < 20; i++) {",
+                  "  const res = await pm.sendRequest({",
+                  "    url: url, method: 'POST',",
+                  "    header: { 'Content-Type': 'application/json' }, body: corpo",
+                  "  });",
+                  "  const got = res.json().items;",
+                  "  const nomes = got.map((v) => v.name);",
+                  "  if (nomes.includes('cardCharged') && nomes.includes('orderShipped')) {",
+                  "    items = got;",
+                  "    break;",
+                  "  }",
+                  "  await new Promise((r) => setTimeout(r, 500));",
+                  "}",
+                  "const valor = (n) => {",
+                  "  const achado = items.find((v) => v.name === n);",
+                  "  return achado ? achado.value : undefined;",
+                  "};",
+                  "",
+                  "pm.test('charge-card aplicou o efeito colateral', function () {",
+                  "  pm.expect(items).to.not.eql(null);",
+                  "  pm.expect(valor('cardCharged')).to.eql('true');",
+                  "});",
+                  "pm.test('ship-order TAMBÉM rodou: a recuperação levou o processo adiante', function () {",
+                  "  pm.expect(valor('orderShipped')).to.eql('true');",
+                  "});",
+                  "pm.test('a variável de processo continua true; quem mudou foi a local', function () {",
+                  "  // Fecho de volta na decisão de escopo: a correção da causa foi local e",
+                  "  // continua local depois que tudo terminou. Isso não é um bug do exercício —",
+                  "  // é o comportamento de escopo que a lição queria medir.",
+                  "  pm.expect(valor('simulateFailure')).to.eql('true');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filter\": {\n    \"processInstanceKey\": \"{{processInstanceKey}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/variables/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "variables",
+                "search"
+              ]
+            },
+            "description": "Filtro por `processInstanceKey`, e não por `name`: o filtro por nome devolveria também as variáveis de execuções anteriores no mesmo cluster, e a asserção passaria por acidente.\n\n`cardCharged` prova que `charge-card` concluiu — e conclui porque o worker usa `autoComplete = false` e decide por conta própria. `orderShipped` prova que o processo seguiu depois do incidente. Sem o segundo, `COMPLETED` seria uma afirmação fraca."
+          },
+          "response": []
+        },
+        {
+          "name": "O incidente ficou RESOLVED, não deletado",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const i = pm.response.json();",
+                  "pm.test('o incidente ainda existe depois de resolvido', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(i.incidentKey).to.match(/^\\d+$/);",
+                  "});",
+                  "pm.test('o estado é RESOLVED, e a causa registrada é a mesma', function () {",
+                  "  pm.expect(i.state).to.eql('RESOLVED');",
+                  "  pm.expect(i.errorType).to.eql('JOB_NO_RETRIES');",
+                  "});",
+                  "pm.test('o errorMessage sobrevive à resolução', function () {",
+                  "  // Resolver muda estado, não apaga registro. O incidente é também a",
+                  "  // evidência do que deu errado, e é isso que torna a análise de causa",
+                  "  // possível depois. Um runbook que apaga o rastro perde a única fonte",
+                  "  // que ninguém mais tem.",
+                  "  pm.expect(i.errorMessage).to.include('recusa do adquirente');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v2/incidents/{{incidentKey}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "incidents",
+                "{incidentKey}"
+              ]
+            },
+            "description": "O incidente é o registro permanente do que parou o processo, com quem parou, por quê e com que mensagem. `state` é o que mudou; o resto é o que sobrou para o post-mortem."
           },
           "response": []
         }

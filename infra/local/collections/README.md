@@ -42,10 +42,15 @@ No Postman: **Import** → escolher o `.json`. Não precisa de collection runner
 | `processDefinitionKey` | — | request de deploy |
 | `processDefinitionId` | — | request de deploy |
 | `processDefinitionVersion` | — | request de deploy |
-| `processInstanceKey` | — | request de criação |
+| `processInstanceKey` | — | request de criação (a pasta `50` sobrescreve) |
 | `awaitMode` | — | request de `awaitCompletion` |
+| `orderBpmnPath` | caminho absoluto do `order-fulfillment.bpmn` | **ajustar para a sua máquina** |
+| `orderProcessDefinitionKey` | — | request de deploy da pasta `50` |
+| `elementInstanceKey` | — | busca de element instance |
+| `jobKey` | — | busca do Job |
+| `incidentKey` | — | busca do incidente |
 
-`bpmnPath` é o único valor que não sobrevive a outra máquina. Ajuste em **Variables** da coleção antes de rodar a pasta `20`.
+`bpmnPath` e `orderBpmnPath` são os únicos valores que não sobrevivem a outra máquina. Ajuste em **Variables** da coleção antes de rodar as pastas `20` e `50`.
 
 ## Ordem
 
@@ -58,7 +63,23 @@ As pastas são numeradas porque dependem umas das outras. Rodar `30` sem `20` n�
 | `20 — Deploy` | 4 | `bpmnPath` válido |
 | `30 — Instância` | 6 | `20` |
 | `40 — Jobs pela REST` | 2 | `20` |
+| `50 — Retries, incidentes e recuperação` | 13 | `orderBpmnPath` válido **e o `retry-worker` no ar** |
 | `90 — Descoberta da API` | 2 | — |
+
+## A pasta `50` exige worker — e essa é a diferença
+
+As pastas `00` a `40` rodam nos dois modos. A `50` **só funciona com o `retry-worker` no ar**, e a razão é o conceito da lição, não uma limitação da coleção:
+
+Sem worker, ninguém comanda `FAIL`. O Job nasce em `CREATED`, `retries` continua `3`, o motor nunca materializa incidente e a instância nunca para. Os quatro requests que dependem do incidente reprovam — `Aguardar o incidente`, `O Job que ficou sem retry`, `A instância foi até o fim` e `Os dois service tasks rodaram` — e os que dependem de uma chave que eles nunca capturam saem como `PULADO`.
+
+```bash
+# a pasta 50, com o worker no ar
+./infra/local/mise.sh exec -- mvn -q -f apps/retry-worker/pom.xml spring-boot:run &
+# espere "Started RetryWorkerApplication" antes de rodar
+node infra/local/collections/run-collections.mjs --folder "50 —"
+```
+
+Rodar `30` e depois `50` na mesma execução é seguro: a `50` sobrescreve `processInstanceKey` com a instância dela, e nada depois dela depende da instância da Lesson 002.
 
 ## Os dois modos da pasta `30`
 
@@ -94,6 +115,19 @@ As contagens de asserção diferem entre os dois ramos (59 sem worker, 57 com wo
 - **Correção registrada:** a versão anterior desta coleção afirmava que ativar e completar Job eram fronteira gRPC, e o `validate-collections.sh` tinha o path errado numa lista de exceções que o bendizia. Um `404` prova que um path não existe, não que uma capacidade não existe. Ver `docs/lessons/002-deploy-instance-worker/evidence.md`.
 - **O campo do Job é `jobKey`,** não `key`. Os `customHeaders` do BPMN viajam com o Job, e `retries` vem do `retries="3"` do service task.
 
+### O que a pasta `50` encontrou, e não estava na documentação
+
+Todos os itens abaixo saíram de request que **reprovou primeiro** na redação e foi corrigido contra a resposta real. Estão no mesmo formato dos anteriores porque têm o mesmo status: medição, não memória.
+
+- **`POST /v2/deployments` não devolve `processDefinitionKey` no topo.** Ele vem em `deployments[0].processDefinition.processDefinitionKey`, junto de `processDefinitionId` e `processDefinitionVersion`. Um `200` com `undefined` no campo esperado é o `200` vazio da pasta `10`, atingida pelo outro lado.
+- **O campo da key do Job é `jobKey`,** não `key`. E não há um nome único para "a key" na REST v2: `processInstanceKey`, `elementInstanceKey`, `incidentKey`, `jobKey`, `deploymentKey`. Escrever `job.key` produz `undefined` com o Job perfeito em mãos.
+- **`POST /v2/process-instances` sem `awaitCompletion` devolve `variables: {}`.** O que foi mandado no corpo não volta. Com `awaitCompletion: true` as variáveis **são** ecoadas — a pasta `30` depende disso. A diferença só aparece comparando os dois.
+- **`GET /v2/process-instances/{key}` não devolve variáveis, e não aceita query param para pedir.** A spec lista um único parâmetro, o próprio `key`. Para ler variáveis é `POST /v2/variables/search`.
+- **`element-instances/search` não devolve `bpmnElementType`.** O filtro `type: SERVICE_TASK` seleciona o registro, mas a resposta não repete o filtro.
+- **`variables/search` devolve o valor como string.** Uma variável booleana vem `"true"`, não `true`. Comparar com o booleano reprova mesmo quando a escrita foi a correta.
+- **`local: true` cria um escopo próprio, e os dois valores coexistem.** Depois de `PUT .../element-instances/{elementInstanceKey}/variables` com `local: true`, o mesmo nome tem `false` no `scopeKey` do element instance e **continua `true`** no `scopeKey` da instância. O worker lê a local e conclui; uma leitura no nível de processo diria que a falha continua. É a diferença entre "corrigi a causa" e "a causa parou de existir".
+- **Filtrar `variables/search` só por `name` vaza execução.** Devolveu quatro `simulateFailure` de execuções diferentes do mesmo cluster, com valores diferentes. É o mesmo defeito de escopo que a Lesson 002 cometeu em `items[0]`: sem escopo, a asserção mede o ambiente, não o seu objeto.
+
 ### O atraso do secondary storage
 
 Quatro requests da pasta `30` começam em `404` ou vazias e só convergem depois. Não é bug, e o script não esconde: ele faz poll e a descrição explica.
@@ -112,7 +146,7 @@ Um detalhe que só aparece quando se polla pelo **estado** e não pela existênc
 
 ## Limites conhecidos
 
-- `bpmnPath` é absoluto e precisa ser ajustado.
+- `bpmnPath` e `orderBpmnPath` são absolutos e precisam ser ajustados.
 - **Rodar a pasta `20` várias vezes não acumula versões.** Reenviar o recurso corrente é idempotente: devolve a mesma `processDefinitionVersion` e a mesma `processDefinitionKey`. Só conteúdo diferente cria versão nova — e voltar a um conteúdo anterior também cria, com key nova. Isso foi medido, não documentado pela Camunda; ver §2 de `docs/lessons/002-deploy-instance-worker/evidence.md`.
 - `run-collections.mjs` implementa um subconjunto de `pm.*` e do Chai. Faltando matcher, o erro é explícito.
 - Assumi cluster local em `8080`/`9600`, **sem** autenticação e com **uma** partição. Nada aqui demonstra comportamento que dependa de contagem de partições.

@@ -213,13 +213,24 @@ curl -X POST http://localhost:8080/v2/incidents/<IK>/resolution \
 
 Saída real em [evidence.md](evidence.md).
 
+O runbook acima está também como requests versionados e asseridos, na pasta `50` da coleção:
+
+```bash
+node infra/local/collections/run-collections.mjs --folder "50 —"
+```
+
+São 13 requests e 36 asserções. A pasta **exige** o `retry-worker` no ar, e não por conveniência:
+sem worker ninguém comanda `FAIL`, o Job fica em `CREATED` e o incidente nunca nasce. Rodada
+com o worker no ar, a coleção inteira fecha em `35 request(s), 95 asserção(ões), 0 request(s)
+com falha` — as 22 requests da Lesson 002 mais estas 13, na mesma execução.
+
 ## Falha / investigação / correção
 
 O caminho de erro desta lesson produziu duas correções que ficam registradas em vez de
 apagadas.
 
 **O que parecia verdade:** que `TIMED_OUT` e `FAILED` fossem o mesmo evento visto de dois
-lugares, e que um Job `TIMED_OUT` tivesse necessarily perdido seu retry.
+lugares, e que um Job `TIMED_OUT` tivesse necessariamente perdido seu retry.
 
 **O que a medição mostrou:** `errorMessage` **persiste** no registro do Job depois do backoff
 (`{"state":"TIMED_OUT","retries":2,"errorMessage":"backoff probe"}`), mas não vem no payload
@@ -235,10 +246,29 @@ verdadeiro, com tipo único por execução, é `0` dentro da janela e `1` depois
 defeito de escopo que a Lesson 002 cometeu e que foi corrigido em `5431834` — medir varrendo
 estado acumulado do ambiente em vez do objeto do request.
 
+### A hipótese mais perigosa, testada
+
+Havia uma afirmação nesta lesson que era inferência pura: *resetar e resolver sem corrigir a
+causa reesgota os retries*. Ela parecia óbvia, e "afirmação que parece óbvia" é o que este
+laboratório trata como suspeito. O probe está em D11 e o resultado é mais útil que a confirmação.
+
+**Confirma:** o mesmo `jobKey` consumiu os três retries de novo, voltou a `FAILED retries=0`, e o
+motor abriu um **incidente novo** (`...006` → `...012`) enquanto o antigo ficava `RESOLVED`. A
+instância parou no mesmo lugar.
+
+**Acrescenta o que a inferência não previa:** os dois comandos responderam `204`. Não houve `409`,
+não houve erro, não houve aviso. O modo de falha de pular a correção da causa é **silencioso**.
+Um operador que resolveu para "limpar a fila" vê sucesso na tela e um incidente novo no dia
+seguinte — e `incidentKey` diferente, o que faz parecer um problema novo.
+
+É por isso que a ordem `corrigir -> resetar -> resolver` é ensinada como **runbook**, e não como
+"sugestão de sequência": cada passo pressupõe que o anterior funcionou, e nenhum deles valida o
+anterior.
+
 ## Implicações de arquitetura
 
-- **O runbook é parte do desenho.** Se a correção da causa exigir deploy, o incidente é um
-  uma fila de trabalho do operador e o tempo de recuperação é tempo de deploy. A lição escolheu variável
+- **O runbook é parte do desenho.** Se a correção da causa exigir deploy, o incidente é uma
+  fila de trabalho do operador e o tempo de recuperação é tempo de deploy. A lição escolheu variável
   de processo justamente para tornar a recuperação um ato, não um ciclo de release.
 - **Reset de retries é privilégio de operador.** Nenhum componente da aplicação pode devolvê-lo.
   Isso é uma fronteira de permissão real, e quem projeta automação precisa saber que ela
@@ -248,6 +278,14 @@ estado acumulado do ambiente em vez do objeto do request.
   `activation` é o motor; `search` é uma projeção.
 - **Recuperar não é reexecutar do zero.** O Job é o mesmo `jobKey`. Se o efeito colateral for
   externo, reexecutar pode cobrar duas vezes — e essa é a lacuna nomeada no escopo.
+- **A `incidentKey` não identifica o problema; o `jobKey` sim.** Resetar e resolver sem corrigir
+  a causa devolveu o mesmo Job a `FAILED retries=0` e abriu um incidente **novo**, com outra
+  chave (`...006` → `...012`, evidence D11). Quem correlacionar incidentes por `incidentKey` vai
+  tratar o mesmo problema como dois. Automação de agrupamento precisa do `jobKey`.
+- **Resolver é reconhecer, não consertar — e o motor não avisa que você esqueceu.** Os três
+  comandos devolveram `2xx` e o processo terminou no mesmo lugar. Não há erro, não há log, não há
+  status diferente: só a repetição do sintoma. É por isso que o runbook tem que ser executado na
+  ordem e com a correção da causa, e não "resolver para limpar a fila".
 
 ## Perguntas de entrevista
 
@@ -275,14 +313,28 @@ não expõe reset de retries nem resolução de incidente.
 *T:* `rg 'UpdateRetriesJobCommandStep1 '` e mostrar que a classe existe sem nenhum chamador
 público. Não é limitação do REST; é do SDK.
 
+**P: por que o runbook corrige a causa com variável local, e não de processo?**
+R: porque `local: true` grava no escopo do element instance, e não substitui a variável de
+processo. As duas coexistem: a do processo continua `true` depois da correção.
+*T:* ler `variables/search` pelos dois `scopeKey` na mesma execução e mostrar `false` no
+element instance e `true` na instância. Ver evidence D10.
+
+**P: se eu resetar e resolver, o processo volta a andar?**
+R: volta a *tentar*, não volta a *funcionar*. Sem corrigir a causa, o Job consome os retries de
+novo e o motor abre um incidente novo, com outra chave — e os comandos anteriores responderam
+`204` normalmente.
+*T:* executar o runbook pulando a correção e mostrar `same jobKey`, `FAILED retries=0`, um
+incidente novo `ACTIVE` e o antigo `RESOLVED`. Ver evidence D11. O entrevistador que espera
+"sim, resolve" aqui está exatamente no erro que a lição quer expor.
+
 **P: o que muda de Camunda 7 para 8 aqui?**
 R: em C7, decremento de retry e criação de incidente eram a mesma transação. Em C8 são
-comandos distintos no log, e a recuperação precisa de coordinating fora do worker.
+comandos distintos no log, e a recuperação precisa de coordenação fora do worker.
 *T:* apontar o `409` como consequência direta da fronteira transacional perdida.
 
 ## Evidência
 
-- [evidence.md](evidence.md) — o ciclo real, o `409`, o backoff, os testes e a prova por mutação
+- [evidence.md](evidence.md) — o ciclo real, o `409`, o probe da inversão, os testes, a coleção e a prova por mutação
 - [SPEC-003](../../../specs/003-retries-incidentes-recuperacao/spec.md)
 - [ADR-0002](../../../adr/0002-camunda-8-version-pin.md)
 - [Lesson 002](../002-deploy-instance-worker/lesson.md) — o caminho feliz e a correção da fronteira REST/gRPC
@@ -339,7 +391,7 @@ flowchart TD
 - [x] Distinção relevante C7 → 8 documentada
 - [x] Escopo definido por SPEC
 - [x] Experimento implementado quando aplicável
-- [x] Testes executados — 16 verdes, com prova por mutação
+- [x] Testes executados — 16 verdes com prova por mutação, mais 13 requests / 36 asserções de coleção
 - [x] Caminho de falha investigado quando relevante
 - [x] Achados documentados a partir de execução real
 - [x] Implicações de arquitetura documentadas
@@ -352,15 +404,14 @@ flowchart TD
 
 **Perguntas abertas honestas para o revisor:**
 
-1. A inversão — resetar e resolver **sem** corrigir a causa — não foi executada. A lesson
-   afirma, a partir do comportamento do worker, que isso reesgotaria os retries. É inferência
-   de boa qualidade, mas é inferência. **Precisa de um probe.**
-2. O `local:true` no `PUT` de variáveis funciona e o worker leu o valor local, mas não foi
-   comparado com um segundo service task lendo a mesma variável. A leitura de escopo não tem
-   prova experimental.
-3. O diagrama foi reescrito depois do primeiro draft, em que o nó de decisão de `retries`
-   vinha antes da decisão e deixava ambíguo qual nó saía do Job ativado. `validate-mermaid.sh` passou
-   nas duas versões: ele valida renderização, não legibilidade do fluxo.
-4. `TIMED_OUT` e seus efeitos no contador estão declarados `N/A` na evidence, e a lesson
-   depende desse `N/A` para não afirmar o que não mediu. Se o revisor achar que o silêncio é
-   piores que a afirmação, é preciso medir.
+1. O que um segundo service task leria. O `local: true` foi medido nos dois lados (evidence D10):
+   a variável local vale `false` no escopo do element instance e o escopo do processo continua
+   `true`, ao mesmo tempo. O que **não** foi medido é a herança de escopo: `ship-order` existe e
+   rodou, mas não lê `simulateFailure`. Então "o worker de `ship-order` veria `true`" é leitura de
+   resolução de escopo. Faltaria um probe com um segundo `@JobWorker` lendo a mesma variável.
+2. `TIMED_OUT` e seus efeitos no contador estão declarados `N/A` na evidence (D7), e a lesson
+   depende desse `N/A` para não afirmar o que não mediu. Se o revisor julgar que o silêncio é pior
+   que a afirmação, é preciso medir — e o probe de backoff de D6 é o ponto de partida.
+3. Nenhum número desta lesson foi medido sob concorrência ou múltiplas partições. O cluster é um
+   Broker, uma partição, um worker. O `409` de D2 e a instabilidade da `incidentKey` de D11 podem
+   ter comportamento diferente em escala, e a lesson não afirma nada sobre isso.

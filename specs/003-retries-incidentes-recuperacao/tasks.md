@@ -25,8 +25,8 @@ requests de coleção da Fase 3 e a revisão independente da Fase 5.
 - [x] `apps/retry-worker/` com o worker que falha sob comando — módulo independente da Lesson 002
 - [x] Teste da decisão de falhar, incluindo a guarda de `retries > 0`
 - [x] Prova por mutação: `charge-crd` derruba 2 testes, `retries="5"` derruba 1 — evidence D9
-- [ ] Requests de coleção para o ciclo completo
-- [ ] `validate-collections.sh` verde com os paths novos
+- [x] Requests de coleção para o ciclo completo — 13 requests, 36 asserções, 0 falhas (evidence D10)
+- [x] `validate-collections.sh` verde com os paths novos — 35/35; o validador pagou por 5 variáveis que eu esqueci de declarar
 
 ## Fase 4 — Evidence e lesson
 
@@ -40,8 +40,8 @@ requests de coleção da Fase 3 e a revisão independente da Fase 5.
 ## Fase 5 — Revisão
 
 - [ ] Revisão independente da lesson e da evidence
-- [ ] Medir a inversão do runbook (resetar e resolver **sem** corrigir a causa) — hoje é inferência
-- [ ] Comparar `local: true` com um segundo service task lendo a mesma variável
+- [x] Inversão do runbook medida: mesmo `jobKey` volta a `FAILED retries=0`, incidente NOVO, os dois comandos respondem `204` (evidence D11)
+- [x] Escopo medido nos dois lados (D10); falta o segundo `@JobWorker` lendo a mesma variável
 
 ## Fora de escopo, para não crescer durante a execução
 

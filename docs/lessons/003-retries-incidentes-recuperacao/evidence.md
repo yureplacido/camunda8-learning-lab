@@ -369,9 +369,164 @@ O teste `failingWorkerDoesNotAutoComplete` fixa essa decisão.
 
 ---
 
+## D10 — A coleção executada: 13 requests, 36 asserções
+
+A pasta `50` transformou o runbook em requests versionados e asseridos. Com o `retry-worker` no ar:
+
+```bash
+$ node infra/local/collections/run-collections.mjs
+...
+35 request(s), 95 asserção(ões), 0 request(s) com falha
+```
+
+As 35 requests são as 22 da Lesson 002 mais as 13 da 003, na mesma execução: a 002 não regrediu.
+
+Sem o worker no ar, a mesma coleção dá `0 request(s) com falha` nas pastas `00` a `40` e reprova
+exatamente quatro requests da `50` — `Aguardar o incidente`, `O Job que ficou sem retry`, `A
+instância foi até o fim` e `Os dois service tasks rodaram`. São os quatro que dependem do
+incidente existir, e sem worker ninguém comanda `FAIL`: o Job fica em `CREATED` e `retries`
+continua `3`. A diferença entre os dois modos **é** o conceito da lição.
+
+### Cinco formas de eu afirmar algo que a resposta contradisse
+
+Cada item abaixo reprovou na primeira execução e foi corrigido contra a resposta real. Estão
+registrados porque o padrão é o mesmo da Lesson 002: **endpoint escrito de memória falha, e o
+runner é o que faz isso aparecer em vez de passar silencioso.**
+
+| O que afirmei | O que o cluster respondeu |
+|---|---|
+| `d.processDefinitionKey` no topo do deploy | Aninhado em `deployments[0].processDefinition.processDefinitionKey`; no topo, `undefined` com `200` |
+| `job.key` na busca de Job | O campo é `jobKey` |
+| `variables.simulateFailure` ecoado no create | `variables: {}` — sem `awaitCompletion`, o create não devolve as variáveis |
+| `variables` no `GET /v2/process-instances/{key}` | A propriedade não existe, e a spec não aceita query param para pedi-la |
+| `bpmnElementType` na busca de element instance | A propriedade não existe; o filtro `type` funciona, mas não é repetido na resposta |
+| `value` como booleano em `variables/search` | String: `"true"`, `"false"` |
+| `variables/search` filtrado só por `name` | Devolveu 4 `simulateFailure` de execuções diferentes do cluster |
+
+O último é o mais importante, e é o mesmo defeito que a Lesson 002 corrigiu em `items[0]`:
+**sem escopo, a asserção mede o ambiente acumulado e não o objeto do request.**
+
+### O `local: true` medido por dois lados
+
+O request `A correção ficou local, e o processo continua dizendo 'true'` lê o mesmo nome nos dois
+escopos, na mesma execução, logo depois do `PUT`:
+
+```text
+escopo do element instance  -> simulateFailure = "false"   (o que o worker leu)
+escopo da instância         -> simulateFailure = "true"    (o que a criação gravou)
+```
+
+E, no fim do processo, `variables/search` por `processInstanceKey` devolve as quatro:
+
+```json
+{"name":"simulateFailure","value":"true","scopeKey":"2251799813775437"}
+{"name":"simulateFailure","value":"false","scopeKey":"2251799813775442"}
+{"name":"cardCharged","value":"true","scopeKey":"2251799813775437"}
+{"name":"orderShipped","value":"true","scopeKey":"2251799813775437"}
+```
+
+O `scopeKey` do valor local é o `elementInstanceKey` do `charge-card`. **N/A** segue de pé: isto
+mede que os dois valores coexistem por escopo, e **não** mede o que um segundo service task leria.
+`ship-order` existe e rodou, mas não lê `simulateFailure`. A afirmação "o worker de `ship-order`
+veria `true`" continua sendo leitura de resolução de escopo, não prova.
+
+### `validate-collections.sh`
+
+```text
+OK: 35 request(s) conferem com a spec viva do cluster.
+```
+
+O validador pagou por um erro meu durante a montagem: eu montei a pasta nova e esqueci de
+declarar as cinco variáveis novas, e ele reprovou `orderBpmnPath`, `orderProcessDefinitionKey`,
+`elementInstanceKey`, `jobKey` e `incidentKey` como não declaradas. É o comportamento pretendido
+para um erro que nenhuma execução da coleção pegaria — uma variável não declarada só aparece
+quando o request que a preenche é pulado.
+
+---
+
+## D11 — Resetar e resolver SEM corrigir a causa: a mesma falha, um incidente novo
+
+A lição afirmava, por leitura do comportamento do worker, que pular a correção da causa reesgotaria
+os retries. Era inferência. Este é o probe que a transformou em medição.
+
+Sequência executada, com o worker no ar, partindo de uma instância parada em incidente:
+
+```bash
+$ PATCH /v2/jobs/2251799813776002            {"changeset":{"retries":3}}
+status=204
+$ POST  /v2/incidents/2251799813776006/resolution   {}
+status=204
+```
+
+**Observado** — os dois comandos foram aceitos, porque a **ordem** foi respeitada. O que faltou foi
+a causa. Seis segundos depois:
+
+```bash
+$ curl -s -X POST http://localhost:8080/v2/jobs/search -H 'Content-Type: application/json' \
+    -d '{"filter":{"processInstanceKey":"2251799813775996","type":"charge-card"}}' \
+    | jq -c '.items[]|{jobKey,state,retries,errorMessage}'
+{"jobKey":"2251799813776002","state":"FAILED","retries":0,
+ "errorMessage":"charge-card: recusa do adquirente (simulada)"}
+```
+
+O **mesmo** `jobKey` consumiu os três retries de novo e voltou a `FAILED retries=0`.
+
+```bash
+$ curl -s $B/v2/incidents/2251799813776006 | jq -c '{incidentKey,state,errorType}'
+{"incidentKey":"2251799813776006","state":"RESOLVED","errorType":"JOB_NO_RETRIES"}
+
+$ curl -s -X POST $B/v2/process-instances/2251799813775996/incidents/search \
+    -H 'Content-Type: application/json' -d '{}' | jq -c '.items[]|{incidentKey,state,errorType}'
+{"incidentKey":"2251799813776006","state":"RESOLVED","errorType":"JOB_NO_RETRIES"}
+{"incidentKey":"2251799813776012","state":"ACTIVE","errorType":"JOB_NO_RETRIES"}
+```
+
+E a instância, de novo parada:
+
+```bash
+$ curl -s $B/v2/process-instances/2251799813775996 | jq -c '{processInstanceKey,state}'
+{"processInstanceKey":"2251799813775996","state":"ACTIVE"}
+```
+
+`variables/search` confirma que a causa não foi corrigida — existe **uma** `simulateFailure`, no
+escopo do processo, valendo `true`. Nenhum `scopeKey` de element instance aparece, porque o
+`PUT` local nunca aconteceu neste probe.
+
+### O que o probe estabelece
+
+**Observado:** resolver não corrige nada. Ele marca o incidente antigo como tratado e o Job volta
+a percorrer os retries, falha de novo e abre um **incidente novo**.
+
+Duas consequências que só aparecem aqui:
+
+- **A `incidentKey` não é estável entre ciclos de recuperação.** O mesmo problema, no mesmo Job,
+  produziu a chave `...006` e depois `...012`. Quem tentar correlacionar "é o mesmo incidente" por
+  `incidentKey` vai errar; o que correlaciona é o `jobKey`.
+- **Resolver é reconhecer, não consertar.** Um runbook que resolve para "limpar o backlog" produz
+  exatamente este resultado: um backlog novo, com o dobro de incidentes, e a causa intacta.
+
+**Interpretação:** isto sugere que a ordem `corrigir -> resetar -> resolver` não é sequência de
+bons jeitos, e sim que **cada passo pressupõe o anterior ter funcionado**. O `409 INVALID_STATE` de
+D2 é o motor recusando porque ele sabe que o Job ainda não tem chance de passar. O `204` desta
+seção é o oposto: o motor aceitou os dois comandos e o problema continuou idêntico. É o modo de
+falha mais perigoso do trio, porque **não produz sinal de erro nenhum** — nenhum status diferente
+de 2xx, nenhum log de erro, nenhuma exceção. Só a repetição do sintoma denuncia.
+
+**N/A** declarado: não se mediu se a segunda resolução exigiria um novo reset, nem quanto
+`retries` o Job tinha entre as falhas individuais, porque o Job só é projetado no índice quando
+para.
+
+---
+
 ## Resíduo dos probes
 
 Os tipos `probe-003`, `probe-bf-*` e `probe-ord-*` e suas instâncias continuam no cluster.
 Não foram removidos: apagar histórico de um log distribuído é operação de operador, e este
 laboratório não quer ensinar a apagar evidência como se fosse faxina. Estão registrados aqui
 para não virarem surpresa no `jobs/search` de quem rodar a lição depois.
+
+A instância `2251799813775996` do probe de D11 também fica, parada em `ACTIVE` com um incidente ativo — é o registro vivo de que pular a correção da causa devolve o processo para o mesmo lugar.
+
+As execuções da pasta `50` também ficam. Cada rodada cria uma instância nova com o mesmo
+`processDefinitionId`, e é por isso que `variables/search` filtrado só por `name` devolve
+histórico misturado — o próprio resíduo é o que prova por que o filtro precisa de escopo.

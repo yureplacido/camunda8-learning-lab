@@ -1,11 +1,13 @@
 # LESSON-002 — Deploy, Instância e Primeiro Job Worker
 
-Status: review
+Status: completed
 
 Escopo de versão: **Camunda 8.9.x** ([ADR-0002](../../adr/0002-camunda-8-version-pin.md)), verificado em cluster `8.9.22`.
 
 Evidência: [evidence.md](evidence.md)
 Conhecimento base: [Lesson 000](../000-camunda-bpmn-concepts/lesson.md) · [Lesson 001](../001-camunda7-8-mental-model/lesson.md)
+
+**Gate de revisão:** aprovado de forma independente. A implementação (código, testes e documentação) foi escrita por outra pessoa; a verificação veio de quem executou a lição — coleção importada e rodada no Postman, `SayHelloWorker` inspecionado no IntelliJ, processo concluído. Detalhes e a limitação que resta em [evidence.md](evidence.md#verificação-humana-independente-do-runner).
 
 > A versão anterior desta lição citava um `SimpleWorker` com `ZeebeClient` e `usePlaintext()`, logs que o repositório nunca produziu, e um `-F "deployment-name=..."` que o contrato v2 rejeita. A correção está registrada lado a lado em [evidence.md](evidence.md#correção-do-registro-anterior). O código real é [`SayHelloWorker`](../../../apps/first-worker/src/main/java/com/camunda8/lab/firstworker/SayHelloWorker.java).
 
@@ -116,6 +118,7 @@ A seta tracejada é a janela que a coleção Postman exercita: o log primário j
 - O contrato BPMN↔worker foi provado por mutação: trocar `say-hello` por `say-helo` reprova `BpmnContractTest`. Teste que nunca falhou não tem valor demonstrado.
 - Coleção Postman — 22 requests, dois modos (58 asserções sem worker, 56 com worker), `0` falhas.
 - O runner teve um bug que produzia **verde falso**; está em [evidence.md §D4](evidence.md#d4--o-runner-dava-verde-sem-rodar-os-testes) porque é o tipo de falha que passa mais vezes do que quebra.
+- A coleção foi executada também no **Postman real**, com breakpoint no worker no IntelliJ, e o processo concluiu. Isso confirma que os scripts são código válido do sandbox do Postman, e não só da implementação parcial do runner.
 
 ## O que esta lesson deliberadamente não ensina
 

@@ -315,13 +315,31 @@ E as quatro requisições que dependem do secondary storage — `Recuperar a ins
 
 ---
 
+## Verificação humana, independente do runner
+
+Esta seção é um **relato de execução humana**, não saída de comando. Não há transcript para colar, e nada aqui deve ser lido como log verbatim. A data não foi registrada no momento da execução, e não vou inventá-la.
+
+Executado pelo autor do laboratório, fora do `run-collections.mjs`:
+
+- a coleção foi importada no Postman e executada ponta a ponta sem alteração no arquivo;
+- o caminho `SayHelloWorker → handleSayHello` foi inspecionado no IntelliJ, com breakpoint no método do worker;
+- o processo concluiu como esperado.
+
+**Observado:** a coleção é código válido do **sandbox do Postman**, e não apenas DSL do runner deste repositório. Essa era a limitação que restava: `run-collections.mjs` implementa um subconjunto de `pm.*`/Chai, e o Postman real era a referência contra a qual o runner nunca tinha sido conferido. Os dois agora concordam.
+
+Isso fecha o gate de revisão do `AGENTS.md` ("revisão independente sem achados bloqueantes"): o código e a documentação foram escritos por outra pessoa, e a verificação veio de quem executou a lição.
+
+**Limitação que permanece:** foi verificado o caminho **com worker no ar**. Não foi exercitado worker que lança exceção, então os `retries="3"` do BPMN continuam declarados e não comprovados. Ver §4, `Limitações` e a lição.
+
+---
+
 ## Interpretação
 
 Duas conclusões que vão além do que foi medido:
 
 1. **O service task é uma fronteira de execução, não um ponto de espera.** O rastro de elementos mostra `StartEvent_1 COMPLETED` e `ServiceTask_SayHello ACTIVE` sem `EndEvent_1` enquanto ninguém consome o Job. É a fronteira que o Camunda 7 não tinha: no 7, o worker participava da mesma transação que escrevia o estado do processo; aqui a instância já está `ACTIVE` no log antes de qualquer worker existir.
 
-2. **A projeção nunca é a fonte da verdade.** O `404` inicial e o `ACTIVE` obsoleto são o mesmo fato: existe uma janela entre a decisão do motor e o banco relacional. Um código que trata a projection como estado corrente vai tomar decisão sobre dado velho — e o `flushInterval` é só o primeiro lugar onde isso aparece.
+2. **A projeção nunca é a fonte da verdade.** O `404` inicial e o `ACTIVE` obsoleto são o mesmo fato: existe uma janela entre a decisão do motor e o banco relacional. Um código que trata a projeção como estado corrente vai tomar decisão sobre dado velho — e o `flushInterval` é só o primeiro lugar onde isso aparece.
 
 ## Limitações
 

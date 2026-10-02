@@ -33,7 +33,7 @@ para comparar.
 | --- | --- | --- |
 | [001](lessons/001-camunda7-8-mental-model/lesson.md) | Onde esses conceitos vivem dentro do Camunda 8 | `completed` |
 | [002](lessons/002-deploy-instance-worker/lesson.md) | Deploy, Instância e Primeiro Job Worker | `completed` |
-| 003 | Retries, incidentes e recuperação | planejada |
+| 003 | Retries, incidentes e recuperação | SPEC pronto, lição SKELETAL |
 | 004 | Escala e concorrência do worker | planejada |
 | 005 | Ciclo de vida e backpressure | planejada |
 

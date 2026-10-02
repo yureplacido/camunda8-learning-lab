@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: first-worker
+  main:
+    web-application-type: none
+
+camunda:
+  client:
+    mode: self-managed
+    zeebe:
+      gateway-address: localhost:26500
+      rest-address: http://localhost:8080
+    worker:
+      defaults:
+        request-timeout: 30s
+
+management:
+  endpoints:
+    enabled-by-default: false
+  endpoint:
+    health:
+      enabled: false
+
+logging:
+  level:
+    root: INFO
+    com.camunda8.lab: INFO

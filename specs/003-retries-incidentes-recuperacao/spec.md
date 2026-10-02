@@ -87,6 +87,11 @@ Medidos antes de escrever este SPEC, porque o SPEC não pode ensinar de memória
 | O campo é `retryBackOff`, inteiro | `"PT20S"` → `400 retryBackoff cannot be parsed`; `retryBackOff` é o nome |
 | O SDK **não** reseta retries | `UpdateRetriesJobCommandStep1` não é retornado por nenhuma interface pública |
 | O SDK **não** resolve incidentes | só existem DTOs de `search`, nenhum comando de resolução |
+| **A ordem reset→resolve é obrigatória** | resolver primeiro responde `409` e o Job não volta |
+| O 409 diz a ordem | `... has no retries left. Please update the job retries and retry resolving the incident` |
+| `errorMessage` persiste no registro do Job | continua lá depois do backoff e de nova tentativa |
+| `errorMessage` não vem na ativação | o payload de `activation` traz `null`; a busca traz o texto |
+| `TIMED_OUT` é estado distinto de `FAILED` | Job ativado e não respondido tem estado próprio |
 
 ### Assimetria que é o eixo da lesson
 
@@ -109,9 +114,17 @@ A recuperação é uma ação de operador, e por isso é um segundo passo delibe
    002 regredir quando a 003 mudar. Custo: mais boilerplate Maven.
 2. **Nome do processo.** Recomendo `processes/003-retries-incidentes-recuperacao/`, com um
    processo de negócio curto e um service task claramente rotulado como falível.
-3. **A ordem reset→resolve é obrigatória?** Já foi observada nessa ordem e funciona. Falhar na
-   ordem inversa **não** foi testado. O SPEC não afirma nada sobre isso até ser medido; é
-   tarefa de execução, não afirmação aqui.
+3. **A ordem reset→resolve é obrigatória, e o motor diz isso.** Resolver com `retries=0`
+   responde `409 INVALID_STATE` e o Job permanece `FAILED` e inativável. O próprio erro nomeia o
+   passo que falta. É a melhor evidência possível de que "recuperar" são **dois comandos com
+   ordem**, e não um comando "desfazer".
+
+### Estados de Job observados, que não são o mesmo
+
+`FAILED` é alguém_reportando falha (comando de falha). `TIMED_OUT` e o Job foi ativado
+e o lock expirar sem resposta — o worker morreu, não errou. São comportamentos diferentes de
+produção e a lesson precisa nomear os dois, porque o consome de `TIMED_OUT` não tem
+`errorMessage` para mostrar.
 
 ## Verification
 

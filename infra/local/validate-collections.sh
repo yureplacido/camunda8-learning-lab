@@ -30,10 +30,13 @@ SPEC_URL="${BASE_URL}/v3/api-docs/Orchestration%20Cluster%20API"
 # Orchestration Cluster REST API ou porque o objetivo do request é justamente
 # mostrar que eles não são API. Cada um precisa de uma justificativa viva aqui
 # — um item sem motivo é um teste que ninguém revisa.
+#
+# Histórico: esta lista já continha "POST /v2/jobs|não existe ativação de Job na
+# REST v2". O path estava errado, a conclusão também, e o validador passava
+# 22/22 confirmando a mentira. Ver a correção em docs/lessons/002.
 ALLOW_NOT_IN_SPEC=(
   "GET /operate/v1/process-instances/search|A SPA do Operate responde 200 com HTML; existe para provar isso"
   "GET /v2/nao-existe|caminho inexistente de propósito, para exibir o formato de erro RFC 9457"
-  "POST /v2/jobs|não existe ativação de Job na REST v2; o request prova a fronteira com gRPC"
   "GET /actuator/health|monitoringApi do Broker (porta 9600), não é parte da Orchestration Cluster REST API"
   "GET /actuator/partitions|monitoringApi do Broker (porta 9600), não é parte da Orchestration Cluster REST API"
   "GET /actuator/exporters|monitoringApi do Broker (porta 9600), não é parte da Orchestration Cluster REST API"

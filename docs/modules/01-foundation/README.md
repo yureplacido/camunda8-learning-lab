@@ -6,12 +6,18 @@ Pré-requisito: [Módulo 00 — Orientation](../00-orientation/README.md).
 
 | Lesson | Tópico | Status |
 | --- | --- | --- |
-| 001 | [Onde esses conceitos vivem dentro do Camunda 8](../../lessons/001-camunda7-8-mental-model/lesson.md) | `ready` |
-| 002 | Modelo de execução do Zeebe | planejada |
-| 003 | Execução BPMN | planejada |
-| 004 | Instâncias de processo e variáveis | planejada |
-| 005 | Jobs e job workers | planejada |
-| 006 | Retries, incidentes e recuperação | planejada |
+| [001](../../lessons/001-camunda7-8-mental-model/lesson.md) | [Onde esses conceitos vivem dentro do Camunda 8](../../lessons/001-camunda7-8-mental-model/lesson.md) | `completed` |
+| [002](../../lessons/002-deploy-instance-worker/lesson.md) | [Deploy, Instância e Primeiro Job Worker](../../lessons/002-deploy-instance-worker/lesson.md) | `completed` |
+| 003 | Retries, incidentes e recuperação | planejada |
+| 004 | Escala e concorrência do worker | planejada |
+| 005 | Ciclo de vida e backpressure | planejada |
+
+> **Numeração reenquadrada.** O módulo foi planejado com 002 Modelo de execução do Zeebe, 003
+> Execução BPMN, 004 Instâncias e variáveis, 005 Jobs e job workers, 006 Retries e incidentes. A
+> Lesson 002 implementada cobriu o conteúdo de 003, 004 e 005 numa única rodada, com evidência de
+> execução real, então o que era 006 virou 003. A ordem de aprendizado é a mesma; o rótulo passou a
+> descrever o que foi estudado. Ver o registro em
+> [learning-roadmap.md](../../learning-roadmap.md).
 
 ## Entregável
 

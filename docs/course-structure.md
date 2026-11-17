@@ -13,7 +13,7 @@ quando o conceito correspondente é alcançado.
 | # | Módulo | Lessons |
 | --- | --- | --- |
 | 0 | Orientation: o que é Camunda, o que é BPMN, para que servem as peças | 000 |
-| 1 | Foundation: onde o Camunda 8 executa, e o modelo Camunda 7 → 8 | 001–006 |
+| 1 | Foundation: onde o Camunda 8 executa, e o modelo Camunda 7 → 8 | 001–005 (reenquadrado; ver roadmap) |
 | 2 | BPMN e execução | 007–011 |
 | 3 | Workers com Java/Spring Boot | 012–014 |
 | 4 | Sistemas distribuídos e confiabilidade | 015–020 |

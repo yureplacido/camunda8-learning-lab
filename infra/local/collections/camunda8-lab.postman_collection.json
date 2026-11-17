@@ -1606,7 +1606,7 @@
                 "resolution"
               ]
             },
-            "description": "Este request existe **para falhar**, e é o mais importante da pasta.\n\nEm Camunda 7, decrementar o retry e criar o incidente seriam a mesma transação — não existiria estado intermediário em que se pudesse estar. Em Camunda 8 são dois comandos no log, e este `409` é a consequência observada da fronteira transacional perdida entre aplicação e engine.\n\nPor isso a ordem do runbook é `corrigir causa -> resetar -> resolver`, e não o contrário."
+            "description": "Este request existe **para falhar**, e é o mais importante da pasta.\n\nEm Camunda 7 o motor cobria a distância entre wait states numa transação de banco, e decrementar o retry e criar o incidente caíam juntos. Em Camunda 8 o comando de FAIL já grava o estado do Job e levanta o incidente quando retries chega a zero. O que vem depois são os comandos separados do operador, e este `409` prova a ordem entre eles: resolver com retries=0 é recusado.\n\nPor isso a ordem do runbook é `corrigir causa -> resetar -> resolver`, e não o contrário. O 409 não prova não-atomicidade entre FAIL e incidente."
           },
           "response": []
         },
@@ -1749,8 +1749,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// Este é o comando que o worker NÃO tem. newFailCommand existe no SDK 8.9.22;",
-                  "// isto aqui, não. A fronteira é de permissão, não de esforço.",
+                  "// O JobClient injetado no worker não tem este comando; o CamundaClient tem.",
+                  "// A fronteira é de autoridade/responsabilidade, não de capacidade da API.",
                   "pm.test('o PATCH de retries responde 204', function () {",
                   "  pm.expect(pm.response.code).to.eql(204);",
                   "});",

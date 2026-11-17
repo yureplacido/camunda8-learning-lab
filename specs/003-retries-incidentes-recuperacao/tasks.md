@@ -1,13 +1,15 @@
 # TASKS-003 — Retries, incidentes e recuperação
 
-Estado da lição: **REVIEW**. Implementado, com evidência executada e lesson escrita. Faltam os
-requests de coleção da Fase 3 e a revisão independente da Fase 5.
+Estado da lição: **COMPLETED**. Implementado, com evidência executada, lesson escrita, requests de
+coleção prontos e revisão independente aprovada. A primeira rodada voltou `CHANGES_REQUESTED` com
+quatro blockers (B1–B4); todos foram corrigidos e a re-revisão voltou `APPROVED`, sem blockers.
 
 ## Fase 1 — Chão factual (concluída antes do SPEC)
 
-- [x] Confirmar `newFailCommand` no Java Client 8.9.22
-- [x] Confirmar ausência de reset de retries no SDK
-- [x] Confirmar ausência de comando de resolução de incidente no SDK
+- [x] Confirmar `newFailCommand` no `JobClient` 8.9.22
+- [x] Confirmar que o `JobClient` não expõe reset nem resolução
+- [x] **Correção da revisão:** confirmar que o `CamundaClient` expõe `newUpdateRetriesCommand`,
+      `newResolveIncidentCommand`, `newSetVariablesCommand` e `newUpdateJobCommand` — evidence D1
 - [x] Medir o ciclo completo por `curl`
 - [x] Medir o backoff por ausência de Job ativável
 
@@ -27,19 +29,26 @@ requests de coleção da Fase 3 e a revisão independente da Fase 5.
 - [x] Prova por mutação: `charge-crd` derruba 2 testes, `retries="5"` derruba 1 — evidence D9
 - [x] Requests de coleção para o ciclo completo — 13 requests, 36 asserções, 0 falhas (evidence D10)
 - [x] `validate-collections.sh` verde com os paths novos — 35/35; o validador pagou por 5 variáveis que eu esqueci de declarar
+      (reexecução na revisão bloqueada pela rota VPN do host — evidence D10)
 
 ## Fase 4 — Evidence e lesson
 
 - [x] Ciclo real executado: 3 falhas, incidente, runbook de 3 comandos, instância `COMPLETED` — evidence D3/D4
-- [x] `evidence.md` com 8 seções, 3 `N/A` declaradas com motivo, e o probe de backoff invalidado na primeira tentativa
-- [x] `lesson.md` na ordem causal, status `review`
+- [x] `evidence.md` com D1–D12, `N/A` declarados com motivo e o probe de backoff invalidado na primeira tentativa
+- [x] `lesson.md` na ordem causal, promovido a `completed` após a re-revisão
 - [x] Diagrama reescrito por ambiguidade de fluxo; Diagram Review preenchido; `validate-mermaid.sh` 11/11
+      (reexecutado na revisão com `mise exec node@24.15.0`)
 - [x] Entrevistas respondidas, cada uma com o teste que sustentaria resposta melhor
-- [x] Seção "O que ainda não é verdade sobre esta lesson", com 4 questões abertas
+- [x] Registro da revisão independente com o histórico `CHANGES_REQUESTED` → `APPROVED` e 3 limitações não-bloqueantes
 
 ## Fase 5 — Revisão
 
-- [ ] Revisão independente da lesson e da evidence
+- [x] Primeira revisão independente executada — `CHANGES_REQUESTED` (B1–B4)
+- [x] B1 — tese `JobClient` vs `CamundaClient` corrigida na lesson, no SPEC e na evidence D1
+- [x] B2 — D1 refeito contra `camunda-client-java-8.9.22-sources.jar`, com comando executado
+- [x] B3 — `FAIL` e incidente reescritos como efeito único do comando de falha; o `409` limitado à ordem dos comandos do operador
+- [x] B4 — segunda resolução medida: `204` → `404 NOT_FOUND` (evidence D12)
+- [x] Re-revisão independente — `APPROVED`, sem blockers (N1–N5 também fechados)
 - [x] Inversão do runbook medida: mesmo `jobKey` volta a `FAILED retries=0`, incidente NOVO, os dois comandos respondem `204` (evidence D11)
 - [x] Escopo medido nos dois lados (D10); falta o segundo `@JobWorker` lendo a mesma variável
 

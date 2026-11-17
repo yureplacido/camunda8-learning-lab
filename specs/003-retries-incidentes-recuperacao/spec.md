@@ -11,7 +11,8 @@ repetir a tentativa: é uma operação de duas ordens, feita por um **operador**
 
 A frase que a lesson tem de fazer o leitor internalizar:
 
-> O worker pode falhar. **Ninguém, no caminho do worker, pode se recuperar.**
+> O worker reporta a falha. **A recuperação é uma decisão de autoridade, não uma ausência de
+> API.** O `JobClient` do worker não a expõe; o `CamundaClient` expõe.
 
 ## O problema primeiro (ordem causal)
 
@@ -22,13 +23,18 @@ materializa a parada num artefato consultável por API, com estado próprio.
 
 ### Eixo C7 → 8
 
-Em C7 o job, o contador de retry e o registro de incidente eram linhas da mesma transação
-que recebia o relatório de falha do engine. Uma transação ACID; ou o retry decrementava e o
-incidente existia, ou nada acontecia.
+**Fato (C7, doc 8.7, verificada)** — o motor cobria a distância entre *wait states* numa transação
+de banco, com um job executor separado continuando depois dos *save points*. Fonte:
+https://docs.camunda.io/docs/8.7/components/best-practices/development/understanding-transaction-handling-c7/ .
 
-Em C8, "job falhou com `retries=0`" e "incidente criado" são **dois comandos no log**. A
-resolução é um terceiro. Nenhum é atômico em relação ao outro. A fronteira transacional
-perdida é a causa; "o banco virou log" é a consequência, e não explica nada sozinha.
+**Fato (C8, doc 8.9, verificada)** — o comando de `FAIL` grava o estado do Job **e** levanta o
+incidente quando `remaining retries` chega a zero. Não são dois comandos. Fonte:
+https://docs.camunda.io/docs/8.9/components/concepts/job-workers/ .
+
+O que vem depois são os comandos do operador — corrigir a causa, atualizar retries, resolver — e
+esses sim são separados e têm ordem. A fronteira transacional ACID compartilhada perdida é a
+causa da mudança de responsabilidade; "o banco virou log" é a consequência, e não explica nada
+sozinha.
 
 ## Scope
 
@@ -68,7 +74,7 @@ Declarado aqui para não crescer durante a execução:
 9. Nenhum caminho de API pode ser afirmado a partir de documentação sem sondagem: foi
    exatamente esse erro que manchou a 002.
 
-## Findings que já são Fato (Observado, 8.9.22)
+## Findings medidos em 8.9.22 (Fato onde a doc foi verificada)
 
 Medidos antes de escrever este SPEC, porque o SPEC não pode ensinar de memória:
 
@@ -80,13 +86,13 @@ Medidos antes de escrever este SPEC, porque o SPEC não pode ensinar de memória
 | `errorMessage` persiste no Job falhado | lido de volta no `search` |
 | Reset de retries responde `204` | `PATCH /v2/jobs/{key}` com `changeset.retries` |
 | Resolver incidente responde `204` | `POST /v2/incidents/{key}/resolution` |
-| Resolver duas vezes responde `404` | incidente já `RESOLVED` |
+| Resolver duas vezes responde `404 NOT_FOUND` | `no such incident was found` — evidence D12 |
 | Após reset + resolução o Job volta | `activation` devolve o mesmo `jobKey` com `retries=3` |
 | Completion fecha a instância | `204`, instância `COMPLETED` com `endDate` |
 | Backoff bloqueia a ativação | `0` Jobs dentro da janela, `1` após |
 | O campo é `retryBackOff`, inteiro | `"PT20S"` → `400 retryBackoff cannot be parsed`; `retryBackOff` é o nome |
-| O SDK **não** reseta retries | `UpdateRetriesJobCommandStep1` não é retornado por nenhuma interface pública |
-| O SDK **não** resolve incidentes | só existem DTOs de `search`, nenhum comando de resolução |
+| `JobClient` não reseta retries | só `newCompleteCommand` e `newFailCommand` na interface injetada no worker — D1 |
+| `CamundaClient` **reset e resolve** | `newUpdateRetriesCommand`, `newResolveIncidentCommand`, `newSetVariablesCommand` — D1 |
 | **A ordem reset→resolve é obrigatória** | resolver primeiro responde `409` e o Job não volta |
 | O 409 diz a ordem | `... has no retries left. Please update the job retries and retry resolving the incident` |
 | `errorMessage` persiste no registro do Job | continua lá depois do backoff e de nova tentativa |
@@ -95,9 +101,18 @@ Medidos antes de escrever este SPEC, porque o SPEC não pode ensinar de memória
 
 ### Assimetria que é o eixo da lesson
 
-O Java Client tem `newFailCommand(...).retries(n).retryBackoff(Duration)` e **não** tem
-reset de retries nem resolução de incidente. Quem consegue falhar não consegue recuperar.
-A recuperação é uma ação de operador, e por isso é um segundo passo deliberado.
+A assimetria é **entre interfaces**, não entre "o SDK" e a recuperação:
+
+- `JobClient` (injetado no `@JobWorker`): `newFailCommand`, `newCompleteCommand`,
+  `newThrowErrorCommand`, ativação e stream.
+- `CamundaClient`: `newUpdateRetriesCommand`, `newResolveIncidentCommand`,
+  `newSetVariablesCommand`, `newUpdateJobCommand`.
+
+**Correção visível:** o SPEC dizia "o Java Client não tem reset de retries nem resolução de
+incidente" e resumia isso em "quem consegue falhar não consegue recuperar". Ambas as frases são
+falsas como estavam escritas — o artifact inspecionado era `zeebe-client-java`, e a afirmação
+geral ignorava o `CamundaClient`. O eixo correto é de **autoridade/responsabilidade**: a
+recuperação é uma ação de operador por desenho, não por falta de método. Ver evidence D1.
 
 ## Constraints
 
@@ -116,15 +131,22 @@ A recuperação é uma ação de operador, e por isso é um segundo passo delibe
    processo de negócio curto e um service task claramente rotulado como falível.
 3. **A ordem reset→resolve é obrigatória, e o motor diz isso.** Resolver com `retries=0`
    responde `409 INVALID_STATE` e o Job permanece `FAILED` e inativável. O próprio erro nomeia o
-   passo que falta. É a melhor evidência possível de que "recuperar" são **dois comandos com
-   ordem**, e não um comando "desfazer".
+   passo que falta. É a melhor evidência possível de que os **comandos de recuperação pelo
+   operador** são dois, com ordem, e não um comando "desfazer". O `409` não prova nada sobre `FAIL` e
+   incidente, que chegam juntos no comando de falha.
 
 ### Estados de Job observados, que não são o mesmo
 
-`FAILED` é alguém_reportando falha (comando de falha). `TIMED_OUT` e o Job foi ativado
-e o lock expirar sem resposta — o worker morreu, não errou. São comportamentos diferentes de
-produção e a lesson precisa nomear os dois, porque o consome de `TIMED_OUT` não tem
-`errorMessage` para mostrar.
+`FAILED` é o worker reportando falha (comando de falha). `TIMED_OUT` é o Job ter sido ativado e o
+lock expirar sem resposta — o worker morreu, não errou. São comportamentos diferentes de produção
+e a lesson precisa nomear os dois.
+
+**Fato (8.9, verificado)** — timeout de ativação não afeta `remaining retries`
+(https://docs.camunda.io/docs/8.9/components/concepts/job-workers/ ). A versão anterior deste SPEC
+dizia que "`TIMED_OUT` não tem `errorMessage` para mostrar", mas D7 **observou** `errorMessage`
+persistir no registro do Job (`{"state":"TIMED_OUT","retries":2,"errorMessage":"backoff probe"}`).
+O que é verdadeiro é que o `errorMessage` não vem no payload de ativação. Correção registrada;
+a medição controlada do contador segue `N/A` em D7.
 
 ## Verification
 

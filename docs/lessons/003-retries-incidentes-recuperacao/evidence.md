@@ -8,43 +8,70 @@ Ambiente: `camunda/camunda:8.9.22`, um Broker, uma partição, REST `8080`, gRPC
 
 ---
 
-## D1 — O SDK consegue falhar e não consegue recuperar
+## D1 — A assimetria é entre `JobClient` e `CamundaClient`
 
-**Observado**, lendo as fontes do client fixado em 8.9.22 (mesma versão do cluster):
+A lesson afirmava que "o SDK não consegue recuperar". A afirmação é falsa como estava escrita:
+o `CamundaClient` **consegue**. O que é verdadeiro é mais estreito, e foi medido no artifact
+correto — `camunda-client-java`, o que o app importa via `camunda-spring-boot-starter`, e não
+`zeebe-client-java`, que é artifact distinto.
 
-```bash
-$ unzip -q ~/.m2/repository/io/camunda/zeebe-client-java/8.9.22/zeebe-client-java-8.9.22-sources.jar
-$ rg 'newFailCommand' io/camunda/zeebe/client/api/worker/JobClient.java
-101:  FailJobCommandStep1 newFailCommand(long jobKey);
-121:  FailJobCommandStep1 newFailCommand(ActivatedJob job);
-```
-
-O comando de falha existe e tem o que a lesson precisa:
-
-```text
-FailJobCommandStep2 retries(int remainingRetries);
-FailJobCommandStep2 retryBackoff(final Duration backoffTimeout);
-FailJobCommandStep2 errorMessage(String errorMsg);
-```
-
-**Observado**, o caminho oposto:
+**Observado**, comando executado contra as fontes da versão fixada:
 
 ```bash
-$ rg 'UpdateRetriesJobCommandStep1 ' -g '!*Test*' .
-# nenhum retorno — a classe existe, nenhuma interface pública a devolve
+$ curl -sSL -o /tmp/opencode/camunda-client-java-8.9.22-sources.jar \
+    https://repo1.maven.org/maven2/io/camunda/camunda-client-java/8.9.22/camunda-client-java-8.9.22-sources.jar
+$ unzip -q /tmp/opencode/camunda-client-java-8.9.22-sources.jar -d /tmp/opencode/client-src
+$ cd /tmp/opencode/client-src
+$ rg -n 'newResolveIncidentCommand\(|newUpdateRetriesCommand\(|newUpdateJobCommand\(' \
+    io/camunda/client/CamundaClient.java
+518:   *  .newResolveIncidentCommand(incidentKey)
+525:  ResolveIncidentCommandStep1 newResolveIncidentCommand(long incidentKey);
+549:   *  .newUpdateRetriesCommand(jobKey)
+556:   * {@link #newResolveIncidentCommand newResolveIncidentCommand(long incidentKey)} .
+561:  UpdateRetriesJobCommandStep1 newUpdateRetriesCommand(long jobKey);
+570:   *  .newUpdateRetriesCommand(job)
+577:   * {@link #newResolveIncidentCommand newResolveIncidentCommand(long incidentKey)} .
+582:  UpdateRetriesJobCommandStep1 newUpdateRetriesCommand(ActivatedJob job);
+778:   * {@link #newResolveIncidentCommand newResolveIncidentCommand(long incidentKey)} .
+787:  UpdateJobCommandStep1 newUpdateJobCommand(long jobKey);
+804:   * {@link #newResolveIncidentCommand newResolveIncidentCommand(long incidentKey)} .
+813:  UpdateJobCommandStep1 newUpdateJobCommand(ActivatedJob job);
+
+$ rg -n 'newFailCommand\(|newCompleteCommand\(|newThrowErrorCommand\(|newUpdateRetriesCommand\(|newResolveIncidentCommand\(' \
+    io/camunda/client/api/worker/JobClient.java
+43:   *  .newCompleteCommand(jobKey)
+54:  CompleteJobCommandStep1 newCompleteCommand(long jobKey);
+63:   *  .newCompleteCommand(job)
+74:  CompleteJobCommandStep1 newCompleteCommand(ActivatedJob job);
+83:   *  .newFailCommand(jobKey)
+94:  FailJobCommandStep1 newFailCommand(long jobKey);
+103:   *  .newFailCommand(job)
+114:  FailJobCommandStep1 newFailCommand(ActivatedJob job);
+124:   *  .newThrowErrorCommand(jobKey)
+135:  ThrowErrorCommandStep1 newThrowErrorCommand(long jobKey);
+145:   *  .newThrowErrorCommand(job)
+156:  ThrowErrorCommandStep1 newThrowErrorCommand(ActivatedJob job);
 ```
 
-```bash
-$ find . -iname '*Incident*.java' | rg -i 'client/api'
-# só DTOs de search: IncidentResult, IncidentSearchQuery, IncidentStateEnum...
-# nenhum comando de resolução
-```
+**Correção visível.** A versão anterior deste evidence abria
+`zeebe-client-java-8.9.22-sources.jar`, inferia uma limitação a partir de um `find` e de uma
+classe órfã, e concluía que o Java Client não expunha recuperação. Artifact errado e conclusão
+errada: o `rg` acima devolve os comandos de recuperação em `CamundaClient.java`. As frases
+"Quem consegue falhar não consegue recuperar" e "Não é limitação do REST; é do SDK" foram
+removidas da lesson por consequência.
 
-**Fato (8.9)** — o pacote `io.camunda.client.api.command` contém `UpdateRetriesJobCommandStep1`
-e não há `IncidentResolutionCommand`. Combinado com a observação acima, a conclusão é do
-repositório: **o Java Client 8.9.22 expõe a falha e não expõe a recuperação.**
+**Fato (8.9.22, verificado)** — `CamundaClient` declara os comandos de recuperação mostrados acima
+(`newResolveIncidentCommand`, `newUpdateRetriesCommand`, `newUpdateJobCommand`); `JobClient`
+declara apenas os verbos de execução (`newCompleteCommand`, `newFailCommand`,
+`newThrowErrorCommand`), ativação e stream. Fontes da tag `8.9.22`:
+https://raw.githubusercontent.com/camunda/camunda/8.9.22/clients/java/src/main/java/io/camunda/client/CamundaClient.java
+e https://raw.githubusercontent.com/camunda/camunda/8.9.22/clients/java/src/main/java/io/camunda/client/api/worker/JobClient.java .
+A doc 8.9 mostra a sequência `newSetVariablesCommand → newUpdateRetriesCommand →
+newResolveIncidentCommand` em https://docs.camunda.io/docs/8.9/components/concepts/incidents/ .
 
-Isso é o eixo da lesson. Quem consegue decrementar `retries` não consegue devolvê-lo.
+**Interpretação:** a fronteira é de autoridade/responsabilidade, não de capacidade. O worker
+recebe `JobClient`; quem opera recebe `CamundaClient`. Um agente ao qual se dê um `CamundaClient`
+pode recuperar — e a decisão de permitir isso passa a ser de design de permissões.
 
 ---
 
@@ -207,8 +234,11 @@ corrigir a causa, o Job reativaria e o worker leria `simulateFailure=true` de no
 **esgotaria os retries outra vez**, criando um incidente novo. Resolver incidente não conserta
 nada: só declara que alguém consertou.
 
-**N/A** — essa inversão (resetar e resolver sem corrigir a causa) **não foi executada**. É
-inferência do comportamento observado do worker, não medição. Fica como questão aberta.
+**N/A — corrigido em D11.** Esta seção originalmente dizia que essa inversão (resetar e resolver
+sem corrigir a causa) **não tinha sido executada** e era apenas inferência. O probe foi executado
+depois e está em **D11**: o mesmo `jobKey` voltou a `FAILED retries=0` e abriu um incidente novo,
+com os dois comandos respondendo `204`. A inferência estava correta, mas deixou de ser inferência.
+O texto original fica visível aqui para que a correção não apague o histórico.
 
 ---
 
@@ -303,17 +333,22 @@ $ curl -X POST http://localhost:8080/v2/jobs/search -H 'Content-Type: applicatio
 `errorMessage` persiste no registro do Job depois do backoff, mas **não** vem no payload de
 ativação — lá veio `null`. São registros diferentes, e a lesson precisa dizer qual usar.
 
-**N/A** — se `TIMED_OUT` consome retry. O registro mostra um Job `TIMED_OUT` com `retries=3`,
-que foi ativado e nunca respondido, o que sugere que o timeout não decrementa sozinho. **Não
-foi medido** de forma controlada, então a lesson afirma apenas que os estados são distintos,
-não o que cada um faz com o contador.
+**Fato (8.9, verificado)** — timeout de ativação **não afeta** `remaining retries`. Fonte:
+https://docs.camunda.io/docs/8.9/components/concepts/job-workers/ . A pergunta conceitual está
+respondida pela documentação da versão fixada.
+
+**N/A** — se `TIMED_OUT` consome retry, **medido de forma controlada nesta lesson**. O acervo
+mostra um Job `TIMED_OUT` com `retries=2` depois do backoff, e o registro antigo citava
+`retries=3`; nenhum dos dois teve condição inicial e contagem explícitas. A lesson afirma que os
+estados são distintos e aponta o Fato acima — não afirma ter feito o experimento.
 
 ---
 
 ## D8 — O rótulo de estado no `search` não é o estado do motor
 
-**Observado.** Logo após o `PATCH` de retries, a busca do secondary storage ainda devolvia o
-valor antigo, e depois de alguns segundos devolvia o novo:
+**Observado** — duas leituras do `jobs/search` em momentos diferentes, uma logo após o `PATCH` e
+outra alguns segundos depois. O quadro abaixo é um **resumo** das duas saídas, não texto verbatim:
+o comando completo e o timestamp não foram preservados, então não deve ser lido como transcrição.
 
 ```text
 Imediatamente após PATCH:  state=FAILED  retries=0     (defasado)
@@ -371,7 +406,8 @@ O teste `failingWorkerDoesNotAutoComplete` fixa essa decisão.
 
 ## D10 — A coleção executada: 13 requests, 36 asserções
 
-A pasta `50` transformou o runbook em requests versionados e asseridos. Com o `retry-worker` no ar:
+A pasta `50` transformou o runbook em requests versionados e asseridos. Com o `retry-worker` no
+ar e o `first-worker` da Lesson 002 **fora**:
 
 ```bash
 $ node infra/local/collections/run-collections.mjs
@@ -380,14 +416,42 @@ $ node infra/local/collections/run-collections.mjs
 ```
 
 As 35 requests são as 22 da Lesson 002 mais as 13 da 003, na mesma execução: a 002 não regrediu.
+As 36 asserções da pasta `50` são invariantes; as outras 59 vêm da 002 no modo sem worker.
 
-Sem o worker no ar, a mesma coleção dá `0 request(s) com falha` nas pastas `00` a `40` e reprova
-exatamente quatro requests da `50` — `Aguardar o incidente`, `O Job que ficou sem retry`, `A
-instância foi até o fim` e `Os dois service tasks rodaram`. São os quatro que dependem do
+**Por que 95 e não 99.** A contagem estática da coleção é 99 chamadas `pm.test(`. Dez delas estão
+em branches condicionais da 002 (`code === 504` / `awaitMode`). No modo sem worker da 002
+executam-se 6 → `59 + 36 = 95`; com o `first-worker` no ar executam-se 4 → `57 + 36 = 93`. O
+número registrado acima é, portanto, o modo sem worker da parte 002 com o `retry-worker` ligado —
+não "qualquer worker no ar". A lesson não esconde essa dependência do modo.
+
+Sem o `retry-worker` no ar, a mesma coleção dá `0 request(s) com falha` nas pastas `00` a `40` e
+reprova exatamente quatro requests da `50` — `Aguardar o incidente`, `O Job que ficou sem retry`,
+`A instância foi até o fim` e `Os dois service tasks rodaram`. São os quatro que dependem do
 incidente existir, e sem worker ninguém comanda `FAIL`: o Job fica em `CREATED` e `retries`
 continua `3`. A diferença entre os dois modos **é** o conceito da lição.
 
-### Cinco formas de eu afirmar algo que a resposta contradisse
+### Limite da reexecução durante a revisão
+
+A saída `35/95` acima é a rodada original, executada quando a lesson foi escrita. Na reexecução
+feita durante a revisão independente o host não alcançou o cluster:
+
+```text
+$ curl -s -o /dev/null -w '%{http_code}\n' --max-time 3 http://localhost:8080/v2/topology
+000
+```
+
+```text
+$ ip route | grep 172.18
+172.18.0.0/16 via 10.212.134.138 dev fctvpnc48d5255 proto static
+172.18.0.0/16 dev br-a4bb97e51275 proto kernel scope link src 172.18.0.1
+```
+
+Dentro da rede Docker o cluster responde `GET /v2/topology HTTP/1.1 200`, mas a rota de VPN
+captura o tráfego do host e não há sudo sem senha para removê-la. Portanto **não** há nova
+execução da coleção nesta revisão; o que foi reexecutado com sucesso foram os testes JVM
+(D9), os diagramas e os probes REST da D12, feitos de dentro da rede `camunda`.
+
+### Sete formas de eu afirmar algo que a resposta contradisse
 
 Cada item abaixo reprovou na primeira execução e foi corrigido contra a resposta real. Estão
 registrados porque o padrão é o mesmo da Lesson 002: **endpoint escrito de memória falha, e o
@@ -435,6 +499,10 @@ veria `true`" continua sendo leitura de resolução de escopo, não prova.
 ```text
 OK: 35 request(s) conferem com a spec viva do cluster.
 ```
+
+**Reexecução durante a revisão:** o script encerrou com `EXIT_CODE=2` em
+`cluster não respondeu a spec em http://localhost:8080/v3/api-docs/Orchestration%20Cluster%20API`,
+pelo mesmo bloqueio de rota descrito acima. A linha `OK: 35/35` é da rodada original.
 
 O validador pagou por um erro meu durante a montagem: eu montei a pasta nova e esqueci de
 declarar as cinco variáveis novas, e ele reprovou `orderBpmnPath`, `orderProcessDefinitionKey`,
@@ -512,15 +580,80 @@ seção é o oposto: o motor aceitou os dois comandos e o problema continuou id�
 falha mais perigoso do trio, porque **não produz sinal de erro nenhum** — nenhum status diferente
 de 2xx, nenhum log de erro, nenhuma exceção. Só a repetição do sintoma denuncia.
 
-**N/A** declarado: não se mediu se a segunda resolução exigiria um novo reset, nem quanto
-`retries` o Job tinha entre as falhas individuais, porque o Job só é projetado no índice quando
-para.
+**N/A — parcialmente corrigido em D12.** Esta seção declarava não ter medido "se a segunda
+resolução exigiria um novo reset". O probe de D12 mediu: com `retries` já resetado, a segunda
+resolução devolveu `404 NOT_FOUND`, sem exigir novo reset — o incidente já não existia. Continua
+**N/A** quanto `retries` o Job tinha entre as falhas individuais, porque o Job só é projetado no
+índice quando para.
+
+---
+
+## D12 — Resolver o mesmo incidente duas vezes: `404 NOT_FOUND`
+
+A resposta de entrevista afirmava que a segunda resolução devolvia `404` sem evidence. O probe
+foi executado para transformar afirmação em medição.
+
+Cenário: deploy da BPMN, instância com `simulateFailure=true`, três ativações e três `FAIL`
+(retries `2 → 1 → 0`) feitas por REST, incidente localizado por
+`POST /v2/process-instances/{key}/incidents/search` (`incidentKey=2251799813686139`,
+`jobKey=2251799813686135`). Como o host não alcança a porta `8080` (ver D10), o probe rodou com
+`curlimages/curl:latest` **dentro** da rede `camunda`, usando `orchestration:8080`.
+
+```bash
+$ cat /tmp/opencode/probe-404-part3.sh   # trecho relevante
+B=http://orchestration:8080
+JK=2251799813686135
+IK=2251799813686139
+say() { printf '\n### %s\n' "$1"; }
+
+say 'PATCH retries=3'
+curl -sS -o /dev/null -w 'status=%{http_code}\n' -X PATCH "$B/v2/jobs/$JK" \
+  -H 'Content-Type: application/json' -d '{"changeset":{"retries":3}}'
+
+say 'first resolution'
+curl -sS -i -X POST "$B/v2/incidents/$IK/resolution" -H 'Content-Type: application/json' -d '{}' \
+  | grep -E '^HTTP/|^{|"title"|"status"|"detail"|"state"' | head -10
+
+say 'second resolution'
+curl -sS -i -X POST "$B/v2/incidents/$IK/resolution" -H 'Content-Type: application/json' -d '{}' \
+  | grep -E '^HTTP/|^{|"title"|"status"|"detail"|"state"|"instance"' | head -10
+
+say 'incident after both'
+curl -sS "$B/v2/incidents/$IK" | head -c 700
+```
+
+**Observado** — saída real:
+
+```text
+### PATCH retries=3
+status=204
+
+### first resolution
+HTTP/1.1 204 
+
+### second resolution
+HTTP/1.1 404 
+{"type":"about:blank","title":"NOT_FOUND","status":404,"detail":"Command 'RESOLVE' rejected with code 'NOT_FOUND': Expected to resolve incident with key '2251799813686139', but no such incident was found","instance":"/v2/incidents/2251799813686139/resolution"}
+
+### incident after both
+{"processDefinitionId":"lesson-003-retries-incidentes","errorType":"JOB_NO_RETRIES","errorMessage":"probe segunda resolucao","elementId":"ServiceTask_ChargeCard","creationTime":"2026-11-17T15:48:34.764Z","state":"ACTIVE","tenantId":"<default>","incidentKey":"2251799813686139","processDefinitionKey":"2251799813686127","processInstanceKey":"2251799813686129","rootProcessInstanceKey":"2251799813686129","elementInstanceKey":"2251799813686134","jobKey":"2251799813686135"}
+```
+
+As linhas de status acima terminam com um espaço porque é assim que `curl -i` as emite; o espaço
+foi preservado de propósito, como qualquer outra parte da saída verbatim.
+
+**Interpretação:** o `204` da primeira resolução remove o incidente do ponto de vista do motor, e o
+segundo `RESOLVE` é recusado com `NOT_FOUND`. O `GET` logo em seguida ainda mostra `state=ACTIVE`
+porque consulta o índice secundário — a mesma defasagem de D8. Não é contradição: o comando foi
+rejeitado pelo motor, a projeção é que está atrasada. A resposta de entrevista pode citar o `404`
+como **Observado**, com esta ressalva.
 
 ---
 
 ## Resíduo dos probes
 
-Os tipos `probe-003`, `probe-bf-*` e `probe-ord-*` e suas instâncias continuam no cluster.
+Os tipos `probe-003`, `probe-bf-*` e `probe-ord-*` e suas instâncias continuam no cluster
+**da rodada original** — ver correção no fim desta seção, porque o cluster foi recriado.
 Não foram removidos: apagar histórico de um log distribuído é operação de operador, e este
 laboratório não quer ensinar a apagar evidência como se fosse faxina. Estão registrados aqui
 para não virarem surpresa no `jobs/search` de quem rodar a lição depois.
@@ -530,3 +663,10 @@ A instância `2251799813775996` do probe de D11 também fica, parada em `ACTIVE`
 As execuções da pasta `50` também ficam. Cada rodada cria uma instância nova com o mesmo
 `processDefinitionId`, e é por isso que `variables/search` filtrado só por `name` devolve
 histórico misturado — o próprio resíduo é o que prova por que o filtro precisa de escopo.
+
+**Correção registrada na revisão:** o cluster local foi recriado com volumes novos em
+2026-11-17 (`docker compose up -d` criou `camunda-89_camunda-data`, `camunda-89_camunda` e a rede
+`camunda`). O resíduo descrito acima existia no cluster da rodada original; as chaves e os tipos
+`probe-003`, `probe-bf-*`, `probe-ord-*` **não** estão mais no cluster atual. O probe de D12 rodou
+neste cluster novo e deixou o seu: `processInstanceKey=2251799813686129`, `jobKey=
+2251799813686135`, `incidentKey=2251799813686139`, `errorMessage="probe segunda resolucao"`.

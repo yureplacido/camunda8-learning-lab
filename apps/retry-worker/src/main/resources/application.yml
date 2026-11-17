@@ -13,9 +13,10 @@ camunda:
       defaults:
         request-timeout: 30s
         # Timeout curto de propósito: o service task desta lesson é falível e
-        # o experiment precisa distinguir FAILED (alguém reportou falha) de
-        # TIMED_OUT (o worker morreu com o Job travado). Com 30s os dois
-        # regimes se confundem.
+        # o experiment observa FAILED (o worker reportou falha) e o estado
+        # TIMED_OUT no acervo de probes. Nenhum experimento desta lesson produz
+        # TIMED_OUT de forma controlada, e a doc 8.9 afirma que o timeout não
+        # afeta remaining retries. Ver evidence D7.
         timeout: 10s
 
 management:

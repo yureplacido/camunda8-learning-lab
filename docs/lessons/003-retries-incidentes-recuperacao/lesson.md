@@ -1,6 +1,6 @@
 # LESSON-003 — Retries, incidentes e recuperação
 
-Status: review
+Status: completed
 
 > Idioma: **PT-BR**. Termos técnicos e nomes de API permanecem em english, porque é assim que
 > aparecem na documentação, nos logs e no código. Ver [AGENTS.md](../../../../AGENTS.md).
@@ -11,8 +11,9 @@ Status: review
 ## Como ler esta lesson
 
 Esta lesson ensina que `retries` é um contador no log, que zerar esse contador **materializa**
-uma parada num artefato consultável — o incidente — e que recuperar esse artefato é um trabalho
-humano, feito por comandos que **o worker não tem**.
+uma parada num artefato consultável — o incidente — e que recuperar esse artefato é uma decisão
+de **autoridade**: os comandos existem no `CamundaClient`, mas não pertencem ao caminho do
+worker. O limite não é capacidade da API; é responsabilidade.
 
 Ela **não** ensina idempotência do efeito colateral, backoff exponencial, nem como monitorar
 incidente em produção. Isso está nomeado em [O que esta lesson deliberadamente NÃO ensina](#o-que-esta-lesson-deliberadamente-não-ensina).
@@ -76,7 +77,8 @@ $ curl -X POST http://localhost:8080/v2/jobs/search -H 'Content-Type: applicatio
 
 ### A forma
 
-O worker tem um verbo só: **falhar** ou **concluir**. Em código:
+O worker tem os verbos da **execução**: falhar, concluir (e `newThrowErrorCommand`, para erro de
+negócio). A recuperação não está entre eles. Em código:
 
 ```java
 @JobWorker(type = "charge-card", autoComplete = false)
@@ -111,29 +113,46 @@ precisa que o comando seja o objeto de estudo.
 
 O ponto que resume a lesson inteira:
 
-> **Quem consegue falhar não consegue recuperar.** O Java Client 8.9.22 tem
-> `newFailCommand(...)` e não expõe reset de retries nem resolução de incidente.
+> **O worker reporta a falha; a recuperação é uma decisão de autoridade.** Em 8.9.22 o
+> `JobClient` — a interface injetada no `@JobWorker` — expõe `newFailCommand` e
+> `newCompleteCommand`, e **não** expõe reset de retries nem resolução de incidente. O
+> `CamundaClient` **expõe** `newUpdateRetriesCommand`, `newResolveIncidentCommand`,
+> `newSetVariablesCommand` e `newUpdateJobCommand`. O limite é **quem deve decidir**, não o que a
+> biblioteca consegue chamar.
 
-**Observado** — a classe de comando existe e nenhuma interface pública a devolve:
+**Fato (8.9.22, verificado)** — as duas interfaces declaram conjuntos diferentes de métodos.
+Fontes da tag `8.9.22`:
+https://raw.githubusercontent.com/camunda/camunda/8.9.22/clients/java/src/main/java/io/camunda/client/CamundaClient.java
+e https://raw.githubusercontent.com/camunda/camunda/8.9.22/clients/java/src/main/java/io/camunda/client/api/worker/JobClient.java .
+A doc 8.9 mostra a sequência Java `newSetVariablesCommand → newUpdateRetriesCommand →
+newResolveIncidentCommand` em https://docs.camunda.io/docs/8.9/components/concepts/incidents/ .
 
-```bash
-$ rg 'UpdateRetriesJobCommandStep1 ' -g '!*Test*' .   # nenhum retorno
-```
+**Observado** — o comando e a saída contra o artifact correto (`camunda-client-java`, não
+`zeebe-client-java`) estão em [evidence.md](evidence.md), seção D1. A distinção aparece nas duas
+interfaces; não é uma classe órfã sem chamador.
 
 ## Camunda 7 → 8
 
-Em Camunda 7, o Job, o contador de retry e o registro de incidente eram linhas da **mesma
-transação** que recebia o relatório de falha. Uma transação ACID: ou o contador decrementava e
-o incidente existia, ou nada acontecia. O operador nunca via meio estado.
+**Fato (C7, documentação 8.7, verificada)** — em Camunda 7 o motor cobria a distância entre
+*wait states* numa transação de banco, e um job executor separado continuava depois dos
+*save points*. É essa fronteira transacional ACID compartilhada entre aplicação e engine que se
+perde. Fonte:
+https://docs.camunda.io/docs/8.7/components/best-practices/development/understanding-transaction-handling-c7/ .
 
-Em Camunda 8, "Job falhou com `retries=0`" e "incidente criado" são **dois comandos no log**.
-A resolução é um terceiro. Nenhum é atômico em relação ao outro, e o cluster inteiro pode
-cair entre eles.
+Em Camunda 8, o comando de `FAIL` **já nasce com o efeito completo**: o motor grava o estado do
+Job e levanta o incidente quando `remaining retries` chega a zero, dentro do próprio comando de
+falha. **Fato (8.9, verificado)** —
+https://docs.camunda.io/docs/8.9/components/concepts/job-workers/ . Não existe um segundo
+comando "criar incidente" que pudesse faltar. O que vem **depois** são os comandos do operador —
+corrigir a causa, atualizar retries, resolver — e esses sim são separados e têm ordem.
 
 > **O que quebra é a fronteira transacional ACID compartilhada entre aplicação e engine.**
-> "O banco virou log" é consequência, não causa.
+> "O banco virou log" é consequência, não causa. A perda da fronteira muda **quem é
+> responsável** pela recuperação: ela sai da transação da aplicação e vira decisão explícita de
+> operador.
 
-**Observado** — a consequência prática, que é um `409` em vez de um lock:
+**Observado** — a consequência prática é um `409` em vez de um lock, e ele prova a ordem dos
+**comandos do operador** (`reset` antes de `resolve`):
 
 ```json
 {"title":"INVALID_STATE","status":409,
@@ -142,7 +161,9 @@ cair entre eles.
   resolving the incident"}
 ```
 
-Recuperar são **dois comandos com ordem**, não um. E quem impõe a ordem é o motor, não o SDK.
+Recuperar são **dois comandos do operador, com ordem**, não um "desfazer". O `409` não prova
+não-atomicidade entre `FAIL` e incidente — esses chegam juntos no comando de falha. Ele prova que
+o motor recusa `RESOLVE` enquanto o Job não tem retries.
 
 ## Onde esta lesson termina — e o que falta para responder
 
@@ -186,32 +207,64 @@ permite que a correção da causa seja um ato do operador, e não um deploy.
 
 ## Execução
 
+Pré-requisito: cluster local no ar (`cd infra/local/camunda-8.9 && docker compose up -d`, com
+`8080` respondendo) e o worker em **background** — o `&` abaixo é o que libera o terminal para
+os `curl`. Volte à raiz do repositório depois do `docker compose`. O sinal de pronto é
+`Started RetryWorkerApplication` no log.
+
 ```bash
-# 1. worker no ar
-./infra/local/mise.sh exec -- mvn -q -f apps/retry-worker/pom.xml spring-boot:run
+# 0. worker em background
+./infra/local/mise.sh exec -- mvn -q -f apps/retry-worker/pom.xml spring-boot:run \
+  > /tmp/opencode/retry-worker.log 2>&1 &
+READY=0
+for i in $(seq 1 60); do
+  if grep -q 'Started RetryWorkerApplication' /tmp/opencode/retry-worker.log; then READY=1; break; fi
+  sleep 1
+done
+[ "$READY" = 1 ] || { tail -30 /tmp/opencode/retry-worker.log; exit 1; }
 
-# 2. deploy e instância com a falha ligada
-curl -X POST http://localhost:8080/v2/deployments \
-  -F "resources=@processes/003-retries-incidentes-recuperacao/order-fulfillment.bpmn"
-curl -X POST http://localhost:8080/v2/process-instances \
+# 1. deploy; a key vem do corpo aninhado, não do topo da resposta
+DEPLOY=$(curl -sS -X POST http://localhost:8080/v2/deployments \
+  -F "resources=@processes/003-retries-incidentes-recuperacao/order-fulfillment.bpmn")
+PDK=$(printf '%s' "$DEPLOY" \
+  | grep -o '"processDefinitionKey":"[0-9]*"' | head -1 | cut -d'"' -f4)
+
+# 2. instância com a falha ligada; extrair a processInstanceKey
+CREATE=$(curl -sS -X POST http://localhost:8080/v2/process-instances \
   -H 'Content-Type: application/json' \
-  -d '{"processDefinitionKey":"<PDK>","variables":{"simulateFailure":true}}'
+  -d "{\"processDefinitionKey\":\"$PDK\",\"variables\":{\"simulateFailure\":true}}")
+PIK=$(printf '%s' "$CREATE" \
+  | grep -o '"processInstanceKey":"[0-9]*"' | head -1 | cut -d'"' -f4)
 
-# 3. esperar o incidente aparecer
-curl -X POST http://localhost:8080/v2/process-instances/<PIK>/incidents/search \
-  -H 'Content-Type: application/json' -d '{}'
+# 3. esperar o incidente; a busca devolve as três keys que o runbook precisa
+INC=$(curl -sS -X POST http://localhost:8080/v2/process-instances/$PIK/incidents/search \
+  -H 'Content-Type: application/json' -d '{}')
+IK=$(printf '%s' "$INC" | grep -o '"incidentKey":"[0-9]*"' | head -1 | cut -d'"' -f4)
+EIK=$(printf '%s' "$INC" | grep -o '"elementInstanceKey":"[0-9]*"' | head -1 | cut -d'"' -f4)
+JK=$(printf '%s' "$INC" | grep -o '"jobKey":"[0-9]*"' | head -1 | cut -d'"' -f4)
 
 # 4. o runbook, nesta ordem
-curl -X PUT http://localhost:8080/v2/element-instances/<EIK>/variables \
+curl -sS -o /dev/null -w 'PUT     %{http_code}\n' -X PUT \
+  http://localhost:8080/v2/element-instances/$EIK/variables \
   -H 'Content-Type: application/json' \
   -d '{"variables":{"simulateFailure":false},"local":true}'
-curl -X PATCH http://localhost:8080/v2/jobs/<JK> \
+curl -sS -o /dev/null -w 'PATCH   %{http_code}\n' -X PATCH \
+  http://localhost:8080/v2/jobs/$JK \
   -H 'Content-Type: application/json' -d '{"changeset":{"retries":3}}'
-curl -X POST http://localhost:8080/v2/incidents/<IK>/resolution \
+curl -sS -o /dev/null -w 'RESOLVE %{http_code}\n' -X POST \
+  http://localhost:8080/v2/incidents/$IK/resolution \
   -H 'Content-Type: application/json' -d '{}'
+
+# 5. a prova não é o 204: é o estado final da instância
+curl -sS -X POST http://localhost:8080/v2/process-instances/search \
+  -H 'Content-Type: application/json' \
+  -d "{\"filter\":{\"processInstanceKey\":\"$PIK\"}}" \
+  | jq -c '.items[]|{state,endDate}'
 ```
 
-Saída real em [evidence.md](evidence.md).
+As chaves não são literais: vêm do corpo de cada resposta, com o mesmo `grep | cut` dos probes
+de [evidence.md](evidence.md). `204` sozinho não prova nada — a prova é a instância chegar a
+`COMPLETED` no `search` seguinte.
 
 O runbook acima está também como requests versionados e asseridos, na pasta `50` da coleção:
 
@@ -219,15 +272,24 @@ O runbook acima está também como requests versionados e asseridos, na pasta `5
 node infra/local/collections/run-collections.mjs --folder "50 —"
 ```
 
-São 13 requests e 36 asserções. A pasta **exige** o `retry-worker` no ar, e não por conveniência:
-sem worker ninguém comanda `FAIL`, o Job fica em `CREATED` e o incidente nunca nasce. Rodada
-com o worker no ar, a coleção inteira fecha em `35 request(s), 95 asserção(ões), 0 request(s)
-com falha` — as 22 requests da Lesson 002 mais estas 13, na mesma execução.
+São 13 requests e **36 asserções invariantes** na pasta `50` — nenhuma é condicional. A pasta
+**exige** o `retry-worker` no ar: sem worker ninguém comanda `FAIL`, o Job fica em `CREATED` e o
+incidente nunca nasce.
+
+O total da coleção inteira depende de qual worker da Lesson 002 está no ar. A coleção tem 99
+chamadas `pm.test(` no arquivo, das quais 10 ficam em branches condicionais da 002:
+
+- com o `retry-worker` ligado e o `first-worker` da 002 **fora**, executam-se 6 desses branches →
+  `35 request(s), 95 asserção(ões), 0 request(s) com falha` (modo registrado em D10);
+- com os **dois** workers ligados, executam-se 4 → `35 request(s), 93 asserção(ões)`.
+
+As 35 requests são as 22 da Lesson 002 mais as 13 da 003. A variação no total de asserções não é
+falha: é o runner contando o ramo `504 sem worker` ou o ramo `200 com worker` do `awaitCompletion`.
 
 ## Falha / investigação / correção
 
-O caminho de erro desta lesson produziu duas correções que ficam registradas em vez de
-apagadas.
+O caminho de erro desta lesson produziu correções que ficam registradas em vez de apagadas —
+inclusive as quatro que a revisão independente encontrou.
 
 **O que parecia verdade:** que `TIMED_OUT` e `FAILED` fossem o mesmo evento visto de dois
 lugares, e que um Job `TIMED_OUT` tivesse necessariamente perdido seu retry.
@@ -236,9 +298,14 @@ lugares, e que um Job `TIMED_OUT` tivesse necessariamente perdido seu retry.
 (`{"state":"TIMED_OUT","retries":2,"errorMessage":"backoff probe"}`), mas não vem no payload
 de ativação. São registros diferentes.
 
-**N/A** — se `TIMED_OUT` consome retry. Um Job `TIMED_OUT` com `retries=3` sugere que não,
-mas não foi medido de forma controlada. A lesson afirma que os estados são distintos e **para
-por aí**.
+**Fato (8.9, verificado)** — timeout de ativação **não afeta** `remaining retries`
+(https://docs.camunda.io/docs/8.9/components/concepts/job-workers/ ). A dúvida conceitual está
+respondida pela documentação da versão fixada.
+
+**N/A** — se `TIMED_OUT` consome retry, **medido de forma controlada nesta lesson**. O acervo
+mostra um Job `TIMED_OUT` com `retries=2` depois do backoff, mas não houve experimento com
+condição inicial e contagem explícitas. A lesson afirma que os estados são distintos, aponta o
+Fato acima e **não finge ter feito o experimento**.
 
 **Um probe invalidado.** A primeira medição de backoff "provou" que backoff não existe: a
 ativação devolveu 1 Job. O Job devolvido era de uma execução anterior do mesmo tipo. O valor
@@ -270,9 +337,11 @@ anterior.
 - **O runbook é parte do desenho.** Se a correção da causa exigir deploy, o incidente é uma
   fila de trabalho do operador e o tempo de recuperação é tempo de deploy. A lição escolheu variável
   de processo justamente para tornar a recuperação um ato, não um ciclo de release.
-- **Reset de retries é privilégio de operador.** Nenhum componente da aplicação pode devolvê-lo.
-  Isso é uma fronteira de permissão real, e quem projeta automação precisa saber que ela
-  existe.
+- **Reset de retries é decisão de operador, não falta de API.** O `CamundaClient` tem
+  `newUpdateRetriesCommand` e `newResolveIncidentCommand`; o `JobClient` do worker não tem. A
+  fronteira é de **autoridade/responsabilidade**: se um agente receber um `CamundaClient` e
+  decidir resolver incidentes, ele consegue — e aí quem pode recuperar passa a ser escolha de
+  design de permissões, não propriedade do SDK.
 - **`jobs/search` não serve para decidir prontidão.** O índice secundário atrasa: foi observado
   devolvendo `FAILED retries=0` logo após um `PATCH` que já tinha gravado `retries=3`.
   `activation` é o motor; `search` é uma projeção.
@@ -297,21 +366,34 @@ Ler o `errorMessage` no incidente e mostrar que veio do worker.
 
 **P: por que o incidente é separado do Job?**
 R: porque ele tem ciclo de vida, causa e dono diferentes. O Job é uma unidade de trabalho; o
-incidente é uma unidade de decisão.
-*T:* resolver o mesmo incidente duas vezes — a segunda responde `404`, porque o primeiro já
-o marcou `RESOLVED`.
+incidente é uma unidade de decisão. Não são dois comandos: o `FAIL` que zera os retries já cria o
+incidente no motor.
+*T:* resolver o mesmo incidente duas vezes — a segunda responde `404 NOT_FOUND` com
+`no such incident was found`, porque a primeira já removeu o incidente **no motor**; o `GET`
+logo depois ainda pode mostrar `ACTIVE` por lag do índice secundário. Ver evidence D12.
 
 **P: por que a ordem reset → resolve é obrigatória?**
-R: porque são dois comandos separados no log, e o motor recusa resolver enquanto o Job não tem
-retry. Não há transação que garanta os dois.
+R: porque são dois comandos **do operador**, separados, e o motor recusa resolver enquanto o Job
+não tem retry. Não há transação que garanta os dois. Isso não diz nada sobre `FAIL` e incidente:
+esses chegam juntos no comando de falha.
 *T:* resolver primeiro e mostrar o `409 INVALID_STATE` cujo `detail` diz exatamente
-`Please update the job retries and retry resolving the incident`.
+`Please update the job retries and retry resolving the incident`. Ver evidence D2.
 
 **P: o worker pode se recuperar sozinho?**
-R: não, e essa é a resposta que a maioria erra. O Java Client 8.9.22 expõe `newFailCommand` e
-não expõe reset de retries nem resolução de incidente.
-*T:* `rg 'UpdateRetriesJobCommandStep1 '` e mostrar que a classe existe sem nenhum chamador
-público. Não é limitação do REST; é do SDK.
+R: não — e a resposta certa não é "o SDK não consegue". O `JobClient` injetado no `@JobWorker`
+tem os verbos de execução (`newFailCommand`, `newCompleteCommand`, `newThrowErrorCommand`). O
+`CamundaClient` **tem** `newUpdateRetriesCommand`, `newResolveIncidentCommand` e
+`newSetVariablesCommand`. A fronteira é de autoridade: a recuperação foi desenhada como decisão
+de operador, e um agente que receber um `CamundaClient` deliberadamente cruza essa fronteira.
+*T:* abrir as duas interfaces da tag 8.9.22 e mostrar os métodos de cada lado. Ver evidence D1.
+
+**P: se o `CamundaClient` consegue atualizar retries e resolver incidentes, por que exigir um
+operador?**
+R: porque capacidade e autoridade são eixos diferentes. O motor não valida "causa corrigida": o
+`204` de D11 prova que ele aceita reset e resolução com a causa intacta e abre um incidente novo.
+Dar o comando a um agente sem dar a ele o critério de correção troca um incidente visível por um
+loop silencioso. A fronteira existe para exigir um ato de decisão, não porque o método seja
+inacessível.
 
 **P: por que o runbook corrige a causa com variável local, e não de processo?**
 R: porque `local: true` grava no escopo do element instance, e não substitui a variável de
@@ -328,9 +410,13 @@ incidente novo `ACTIVE` e o antigo `RESOLVED`. Ver evidence D11. O entrevistador
 "sim, resolve" aqui está exatamente no erro que a lição quer expor.
 
 **P: o que muda de Camunda 7 para 8 aqui?**
-R: em C7, decremento de retry e criação de incidente eram a mesma transação. Em C8 são
-comandos distintos no log, e a recuperação precisa de coordenação fora do worker.
-*T:* apontar o `409` como consequência direta da fronteira transacional perdida.
+R: em C7 o motor cobria a distância entre *wait states* numa transação de banco — retry e
+incidente caíam juntos, e o job executor separado continuava depois dos *save points*. Em C8 o
+próprio `FAIL` já grava estado do Job e incidente. O que se perde é a fronteira ACID compartilhada
+com a aplicação, e ela aparece na **recuperação**: corrigir, resetar e resolver passam a ser
+decisões fora da transação da aplicação.
+*T:* apontar o `409` de D2 como prova da **ordem dos comandos do operador**, não como prova de que
+`FAIL` e incidente são atômicos ou não.
 
 ## Evidência
 
@@ -338,8 +424,9 @@ comandos distintos no log, e a recuperação precisa de coordenação fora do wo
 - [SPEC-003](../../../specs/003-retries-incidentes-recuperacao/spec.md)
 - [ADR-0002](../../../adr/0002-camunda-8-version-pin.md)
 - [Lesson 002](../002-deploy-instance-worker/lesson.md) — o caminho feliz e a correção da fronteira REST/gRPC
-- [Incidentes (8.9)](https://docs.camunda.io/docs/components/concepts/incidents)
-- [Service tasks e retries (8.9)](https://docs.camunda.io/docs/components/modeler/bpmn/service-tasks/)
+- [Incidentes (8.9)](https://docs.camunda.io/docs/8.9/components/concepts/incidents/)
+- [Job workers (8.9)](https://docs.camunda.io/docs/8.9/components/concepts/job-workers/)
+- [Transação em Camunda 7 (documentação 8.7)](https://docs.camunda.io/docs/8.7/components/best-practices/development/understanding-transaction-handling-c7/)
 
 ## Diagrama do ciclo observado
 
@@ -396,22 +483,42 @@ flowchart TD
 - [x] Achados documentados a partir de execução real
 - [x] Implicações de arquitetura documentadas
 - [x] Revisão de entrevista concluída
-- [ ] Revisão independente concluída
+- [x] Revisão independente concluída — primeira rodada `CHANGES_REQUESTED` (B1–B4), corrigida;
+      re-revisão `APPROVED` sem blockers
 
-## O que ainda não é verdade sobre esta lesson
+## Registro da revisão independente
 
-**Gate que falta:** revisão independente. Ninguém além do autor leu esta lesson.
+**Fato (revisão executada por agente independente, em duas rodadas).**
 
-**Perguntas abertas honestas para o revisor:**
+1. **Primeira rodada — `CHANGES_REQUESTED`.** Quatro blockers: B1, a tese "o SDK não consegue
+   recuperar"; B2, o artifact errado inspecionado no D1; B3, `FAIL` e incidente descritos como
+   dois comandos não atômicos; B4, resposta de entrevista apoiada em medição inexistente.
+2. **Correção.** A tese virou a distinção entre `JobClient` e `CamundaClient`; o D1 foi refeito
+   contra `camunda-client-java-8.9.22-sources.jar`; o eixo C7→8 foi reescrito com Fato 8.7 e Fato
+   8.9; o D12 mediu a segunda resolução (`204` → `404 NOT_FOUND`). Os cinco achados não-bloqueantes
+   da re-revisão (N1–N5) também foram fechados: ressalva de D12 na entrevista, prova final de
+   `COMPLETED` no bloco de Execução, `newThrowErrorCommand` incluído no `rg` do D1, falha explícita
+   no loop de espera do worker e redação do `TIMED_OUT`.
+3. **Re-revisão — `APPROVED`, sem blockers.** O revisor confirmou B1–B4 fechados, não encontrou
+   novos defeitos bloqueantes e adjudicou `001–005 (reenquadrado; ver roadmap)` como o intervalo
+   correto do Módulo 1 em `docs/course-structure.md` — a sugestão anterior `000–005` duplicaria a
+   Lesson 000, que pertence ao Módulo 0.
 
-1. O que um segundo service task leria. O `local: true` foi medido nos dois lados (evidence D10):
-   a variável local vale `false` no escopo do element instance e o escopo do processo continua
-   `true`, ao mesmo tempo. O que **não** foi medido é a herança de escopo: `ship-order` existe e
-   rodou, mas não lê `simulateFailure`. Então "o worker de `ship-order` veria `true`" é leitura de
-   resolução de escopo. Faltaria um probe com um segundo `@JobWorker` lendo a mesma variável.
-2. `TIMED_OUT` e seus efeitos no contador estão declarados `N/A` na evidence (D7), e a lesson
-   depende desse `N/A` para não afirmar o que não mediu. Se o revisor julgar que o silêncio é pior
-   que a afirmação, é preciso medir — e o probe de backoff de D6 é o ponto de partida.
-3. Nenhum número desta lesson foi medido sob concorrência ou múltiplas partições. O cluster é um
-   Broker, uma partição, um worker. O `409` de D2 e a instabilidade da `incidentKey` de D11 podem
-   ter comportamento diferente em escala, e a lesson não afirma nada sobre isso.
+**Limitações que o revisor avaliou e decidiu que NÃO bloqueiam** — registradas, não omitidas:
+
+1. **Herança de escopo do `local: true`.** Medido nos dois lados (D5 e D10): a variável local
+   vale `false` no escopo do element instance e o escopo do processo continua `true`, ao mesmo
+   tempo. O que não foi medido é o que um segundo `@JobWorker` leria — `ship-order` rodou, mas não
+   lê `simulateFailure`. A lesson não afirma o valor lido por ele.
+2. **`TIMED_OUT` e o contador.** `N/A` de medição controlada mantido em D7; o comportamento
+   conceitual está coberto por Fato 8.9 com URL, então a lesson pode citar o Fato sem fingir
+   medição.
+3. **Concorrência e múltiplas partições.** O cluster é um Broker, uma partição, um worker. O
+   `409` de D2 e a troca de `incidentKey` de D11 são observações deste cluster, e a lesson não as
+   generaliza.
+
+**Dead-end de ambiente registrado:** a reexecução da coleção e do `validate-collections.sh`
+durante a revisão ficou bloqueada porque o host não alcança a porta `8080` — `curl` devolve `000`
+e `ip route` mostra `172.18.0.0/16 via 10.212.134.138 dev fctvpnc48d5255`, rota de VPN que
+captura a rede Docker. Os probes REST da D12 foram medidos por `curlimages/curl` **dentro** da
+rede `camunda`, e os testes JVM e os diagramas foram reexecutados com sucesso. Ver evidence D10.

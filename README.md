@@ -18,4 +18,4 @@ The process intentionally creates realistic orchestration, integration, retry, t
 6. Treat interview readiness as a consequence of understanding, not memorized answers.
 
 ## Current foundation
-See `docs/learning-roadmap.md`, `docs/camunda/README.md` and `specs/001-camunda8-foundation/`.
+See `docs/learning-roadmap.md`, `docs/camunda/README.md` and `specs/001-camunda7-8-mental-model/`.

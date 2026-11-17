@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_003" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.39.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="lesson-003-retries-incidentes" name="Lesson 003 - Retries, incidentes e recuperacao" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_1" name="Pedido recebido">
+      <bpmn:outgoing>Flow_1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="ServiceTask_ChargeCard"/>
+    <bpmn:serviceTask id="ServiceTask_ChargeCard" name="Cobrar cartao (falha de proposito)">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="charge-card" retries="3"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_1</bpmn:incoming>
+      <bpmn:outgoing>Flow_2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="ServiceTask_ChargeCard" targetRef="ServiceTask_ShipOrder"/>
+    <bpmn:serviceTask id="ServiceTask_ShipOrder" name="Enviar pedido">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="ship-order" retries="3"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_2</bpmn:incoming>
+      <bpmn:outgoing>Flow_3</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_3" sourceRef="ServiceTask_ShipOrder" targetRef="EndEvent_1"/>
+    <bpmn:endEvent id="EndEvent_1" name="Pedido concluido">
+      <bpmn:incoming>Flow_3</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="lesson-003-retries-incidentes">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="180.0" y="102.0" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ServiceTask_ChargeCard_di" bpmnElement="ServiceTask_ChargeCard">
+        <dc:Bounds x="280.0" y="80.0" width="100" height="80"/>
+        <bpmndi:BPMNLabel/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ServiceTask_ShipOrder_di" bpmnElement="ServiceTask_ShipOrder">
+        <dc:Bounds x="460.0" y="80.0" width="100" height="80"/>
+        <bpmndi:BPMNLabel/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_1_di" bpmnElement="EndEvent_1">
+        <dc:Bounds x="640.0" y="102.0" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
+        <di:waypoint x="216.0" y="120.0"/>
+        <di:waypoint x="280.0" y="120.0"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2">
+        <di:waypoint x="380.0" y="120.0"/>
+        <di:waypoint x="460.0" y="120.0"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_3_di" bpmnElement="Flow_3">
+        <di:waypoint x="560.0" y="120.0"/>
+        <di:waypoint x="640.0" y="120.0"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

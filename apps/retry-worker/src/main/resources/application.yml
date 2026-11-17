@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: retry-worker
+  main:
+    web-application-type: none
+
+camunda:
+  client:
+    mode: self-managed
+    gateway-address: localhost:26500
+    rest-address: http://localhost:8080
+    worker:
+      defaults:
+        request-timeout: 30s
+        # Timeout curto de propósito: o service task desta lesson é falível e
+        # o experiment observa FAILED (o worker reportou falha) e o estado
+        # TIMED_OUT no acervo de probes. Nenhum experimento desta lesson produz
+        # TIMED_OUT de forma controlada, e a doc 8.9 afirma que o timeout não
+        # afeta remaining retries. Ver evidence D7.
+        timeout: 10s
+
+management:
+  endpoints:
+    enabled-by-default: false
+  endpoint:
+    health:
+      enabled: false
+
+logging:
+  level:
+    root: INFO
+    com.camunda8.lab: INFO

@@ -1162,7 +1162,7 @@ distribuído com estado. A troca costuma valer a pena, mas é uma troca, e o mod
 - [x] Distinção componente lógico ≠ container explícita e evidenciada
 - [x] Distinção relevante C7 → 8 documentada, com a fronteira transacional como eixo
 - [x] H2 explicado pelos 7 papéis, sem os dois absolutos
-- [x] Escopo definido por SPEC — [SPEC-001](../../../specs/001-camunda8-foundation/spec.md)
+- [x] Escopo definido por SPEC — [SPEC-001](../../../specs/001-camunda7-8-mental-model/spec.md)
 - [x] Experimento implementado quando aplicável — o cluster sobe e é inspecionado
 - [x] Testes executados — N/A por projeto: esta lesson não produz código. A verificação é
       observação do cluster em execução. Nenhum teste foi inventado para preencher lacuna.

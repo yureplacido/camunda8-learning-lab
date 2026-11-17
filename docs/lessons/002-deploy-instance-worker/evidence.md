@@ -193,7 +193,7 @@ A coleção usa `await` no topo do script para pollar o secondary storage. Sem `
   ok  200 A variável chegou ao processo
 ```
 
-Foi o total de asserções que denunciou: 47 quando os scripts de poll deveriam ter contribuído. A correção é `await body_(pm)` antes do `Promise.all`, mais um `try/catch` que reprova o request se o script estourar. Depois da correção os mesmos requests imprimem as asserções e o total passa a 58/56.
+Foi o total de asserções que denunciou: 47 quando os scripts de poll deveriam ter contribuído. A correção é `await body_(pm)` antes do `Promise.all`, mais um `try/catch` que reprova o request se o script estourar. Depois da correção os mesmos requests imprimem as asserções e o total passa a 59 sem worker e 57 com worker — número que depende do estado do cluster, como explica a seção da coleção Postman.
 
 A lição que fica: **um runner que não aguarda o próprio script é um gerador de verde falso**, e ele passa mais vezes do que falha. Comparar a contagem de asserções com o número de `pm.test` no arquivo é o que pega isso; conferir só o código de saída, não.
 
@@ -263,7 +263,155 @@ curl -s -o /dev/null -w "%{http_code} %{content_type}\n" \
 # 404 application/problem+json
 ```
 
-**Observado:** `200` no caminho da SPA não prova que uma API respondeu. E a REST v2 não tem `POST /v2/jobs`: ativação e completion de Job são fronteira gRPC/SDK, como prova o `404 application/problem+json`.
+**Observado:** `200` no caminho da SPA não prova que uma API respondeu. Um `404` em `/v2/nao-existe` prova que o Gateway recusou o path — e nada além disso.
+
+---
+
+## Correção: o ciclo de Job existe na REST v2
+
+Esta seção substitui uma afirmação que estava errada nesta própria evidence. Ela é deixada
+visível porque o erro é instrutivo.
+
+**O que estava escrito.** "`POST /v2/jobs` dá 404, logo ativação e completion de Job são fronteira
+gRPC/SDK, e essa fronteira é real." Esse `404` era real. A conclusão não era.
+
+**O que a spec viva do cluster responde** (`GET /v3/api-docs/Orchestration Cluster API`):
+
+```text
+POST   /v2/jobs/activation
+POST   /v2/jobs/{jobKey}/completion
+POST   /v2/jobs/{jobKey}/failure
+PATCH  /v2/jobs/{jobKey}
+POST   /v2/jobs/search
+```
+
+**Observado, na spec e ao vivo:**
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8080/v2/jobs/search \
+  -H 'Content-Type: application/json' -d '{}'
+# 200
+```
+
+```json
+{"totalItems":78,"items":[{"jobKey":"2251799813748851","retries":3,"state":"COMPLETED","type":"say-hello","elementId":"ServiceTask_SayHello","hasFailedWithRetriesLeft":false,...}]}
+```
+
+```bash
+curl -s -X POST http://localhost:8080/v2/jobs/activation \
+  -H 'Content-Type: application/json' -d '{}'
+```
+
+```json
+{"type":"about:blank","title":"INVALID_ARGUMENT","status":400,
+ "detail":"No type provided. No timeout provided. No maxJobsToActivate provided.",
+ "instance":"/v2/jobs/activation"}
+```
+
+E o Broker respondendo sobre um Job, não o roteador do Gateway:
+
+```bash
+curl -s -X POST http://localhost:8080/v2/jobs/2251799813748851/failure \
+  -H 'Content-Type: application/json' -d '{"retries":0,"errorMessage":"probe"}'
+```
+
+```json
+{"title":"NOT_FOUND","status":404,
+ "detail":"Command 'FAIL' rejected with code 'NOT_FOUND': Expected to fail job with key '2251799813748851', but no such job was found"}
+```
+
+**Observado:** a REST v2 tem o ciclo de Job completo — buscar, ativar, falhar, completar, e
+`PATCH {jobKey}` para resetar `retries`. `POST /v2/jobs` dava 404 porque esse caminho exato não
+existe; o caminho real tem `/activation` no fim.
+
+### Por que o erro passou
+
+O `validate-collections.sh` tinha `POST /v2/jobs` na lista de exceções, com a justificativa
+"não existe ativação de Job na REST v2". Ou seja, o validador estava **bendizendo** a afirmação
+errada: ele confirmava que o path não estava na spec, e isso era verdade, enquanto a conclusão
+ao lado era falsa. Passou 22/22 durante meses sem nunca checar a conclusão.
+
+A lição que fica: **um 404 prova que um path não existe, não que uma capacidade não existe.**
+Para afirmar um limite de API é preciso sondar o endpoint real, e afirmar sobre a linguagem de
+transporte exige observar a conexão.
+
+### O worker fala REST, não gRPC
+
+A mesma lição afirmava "ativação por gRPC" no diagrama e na conclusão. O ADR-0002 do próprio
+repositório já registrava que o Camunda Java Client usa REST por padrão desde a 8.8.
+
+**Observado**, com o worker no ar e as conexões do processo Java:
+
+```bash
+$ PID=$(pgrep -f 'First[W]orkerApplication' | head -1); ss -tnp | grep "pid=${PID},"
+ESTAB 0 0 [::ffff:127.0.0.1]:42208 [::ffff:127.0.0.1]:8080 \
+  users:(("java",pid=726459,fd=184))
+
+$ ss -tnp | grep "pid=${PID}," | grep -c 26500
+0
+```
+
+Uma conexão estabelecida em `8080` e **nenhuma** em `26500`. Repetido em execuções distintas,
+com pids e portas efêmeras diferentes.
+
+**Fato (8.9)** — [Job workers](https://docs.camunda.io/docs/components/concepts/job-workers) descreve o
+worker pelo cliente, sem fixar transporte; a escolha é do client, e o 8.8+ usa REST por padrão.
+
+Os rótulos `ativar por gRPC` no diagrama e na conclusão da lesson foram corrigidos. O worker da
+Lesson 002 e o da Lesson 003 falam **REST** na porta 8080.
+
+### Correção 2: a coleção acumulava state e reprovava sozinha
+
+Descoberta ao remedir os dois modos acima, depois da correção do ciclo de Job. Não é o mesmo
+erro, e estava latente desde a versão original da coleção.
+
+**O que estava escrito.** A request `Recuperar a instância` tinha a asserção
+`sem worker: o 504 não cancelou a instância`, implementada sobre **todas** as instâncias
+retornadas para aquela `processDefinition`:
+
+```js
+items.filter(function (x) { return x.processDefinitionKey === defKey; }).forEach(function (x) {
+  pm.expect(x.state).to.not.eql('TERMINATED');
+  pm.expect(x.isCanceled).to.not.eql(true);
+});
+```
+
+**Observado:** a request passou a reprovar, e o erro dizia exatamente o que a asserção negava:
+
+```text
+FALHA 200 Recuperar a instância (a key do 504 se perdeu)
+      · sem worker: o 504 não cancelou a instância -> esperava "TERMINATED", veio "TERMINATED"
+```
+
+E o cluster mostrava **uma única** instância `TERMINATED` entre 57:
+
+```bash
+curl -s -X POST http://localhost:8080/v2/process-instances/search \
+  -H 'Content-Type: application/json' \
+  -d '{"filter":{"processDefinitionKey":"2251799813758764"},"sort":[{"field":"startDate","order":"DESC"}]}' \
+  | jq -r '.items[] | .state' | sort | uniq -c
+```
+
+```text
+     54 COMPLETED
+      2 ACTIVE
+      1 TERMINATED     <- end=2026-10-02T20:38:43.949Z, de uma sessão anterior
+```
+
+O `504` sob teste nunca cancelou nada. A reprovação vinha de um `TERMINATED` antigo, deixado por
+uma sessão de experimentation das 20:38, e a request passaria a reprovar **para sempre** a cada
+nova execução do lab.
+
+**Correção:** a afirmação passou a ser sobre a instância *daquele* request, que é `items[0]`
+porque a busca pede `startDate DESC`. As outras asserções da request já eram por existência
+(`length > 0`), que é o tipo certo de afirmação quando o alvo não pode ser isolado.
+
+**A lição que fica:** uma asserção que varre o estado **acumulado** do sistema não está testando o
+request que a segue — está testando a história do ambiente. Isso é a mesma família do verde falso
+de §D4, com sinal invertido: ali o runner deixava de rodar asserções, aqui a coleção reprovava por
+uma instância que nada teve a ver com o `504`. `AGENTS.md` já pedia para afirmar sobre o que prova
+o conceito; aqui a versão forte da regra é **afirmar sobre o objeto do request**, não sobre tudo
+que o filtro trouxe.
 
 ---
 
@@ -299,19 +447,32 @@ BPMN restaurado em seguida. **Observado:** o contrato entre BPMN e worker é ver
 # OK: 22 request(s) conferem com a spec viva do cluster.
 ```
 
-Os dois modos, com o runner corrigido (§D4):
+Os dois modos, com o runner corrigido (§D4) e com a coleção corrigida (ver
+[correção do escopo de `TERMINATED`](#correção-2-a-coleção-acumulava-state-e-reprovava-sozinha)):
 
 ```bash
 node infra/local/collections/run-collections.mjs   # worker parado
-# 22 request(s), 58 asserção(ões), 0 request(s) com falha
+# 22 request(s), 59 asserção(ões), 0 request(s) com falha
 
 node infra/local/collections/run-collections.mjs   # worker no ar
-# 22 request(s), 56 asserção(ões), 0 request(s) com falha
+# 22 request(s), 57 asserção(ões), 0 request(s) com falha
 ```
 
 **Observado:** a contagem **muda entre os modos** porque os requests de `awaitCompletion` e de leitura afirmam coisas diferentes conforme o regime. Sem worker: `504`, ausência de `processInstanceKey`, `ServiceTask` parada em `ACTIVE` e `EndEvent` inexistente — são 2 asserções a mais. Com worker: `200`, trilha completa até o `EndEvent`.
 
 E as quatro requisições que dependem do secondary storage — `Recuperar a instância`, `Ler a instância pela key`, `Por onde o processo avançou` e `A variável chegou ao processo` — passam a imprimir suas asserções nos dois modos. Antes de §D4 elas não imprimiam nada.
+
+### A contagem exata não é um invariante
+
+O arquivo tem 63 `pm.test`; 63 − 4 = 59 é o teto alcançável no modo sem worker, porque
+quatro deles são condicionais ao regime. **A versão anterior desta evidence registrava 58 e 56,
+e esses números não reproduziram** quando foram remedidos: medi 56 com a coleção antiga e sem
+worker, depois 57, depois 59, conforme o estado do cluster ia mudando.
+
+A lição: **o total de asserções é uma medição dependente de estado, não uma constante do
+arquivo.** Registrar `58` como se fosse a verdade do arquivo foi registrar um retrato. O que é
+verificável e deve ser conferido é o delta de 2 entre os modos, e `0 request(s) com falha` nos
+dois.
 
 ---
 

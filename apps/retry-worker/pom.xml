@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.0.8</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.camunda8.lab</groupId>
+    <artifactId>retry-worker</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>retry-worker</name>
+    <description>Retries, incidentes e recuperacao - Lesson 003</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <!-- Mesma versão do cluster local: 8.9.22. -->
+        <camunda-sdk.version>8.9.22</camunda-sdk.version>
+        <!-- Versões declaradas pelo próprio camunda-client-java 8.9.22. -->
+        <httpclient5.version>5.6.4</httpclient5.version>
+        <httpcore5.version>5.4.4</httpcore5.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.camunda</groupId>
+            <artifactId>camunda-spring-boot-starter</artifactId>
+            <version>${camunda-sdk.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+            Mesmo motivo do first-worker, ver a Lesson 002 evidence.md (D2): o
+            dependencyManagement do Spring Boot 4.0.8 rebaixa o httpclient5 para
+            uma versão sem disableContentCompression(), e o Camunda Java Client
+            chama esse método no startup.
+        -->
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+            <version>${httpclient5.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.httpcomponents.core5</groupId>
+            <artifactId>httpcore5</artifactId>
+            <version>${httpcore5.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

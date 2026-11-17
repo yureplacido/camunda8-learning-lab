@@ -103,8 +103,8 @@ flowchart LR
   end
   W["SayHelloWorker<br/>processo Java separado<br/>@JobWorker(type='say-hello')"]
   PI --> JOB
-  JOB -->|ativar por gRPC| W
-  W -->|completar por gRPC| JOB
+  JOB -->|ativar por REST| W
+  W -->|completar por REST| JOB
   JOB --> PI
   PI -.->|exporter, flushInterval PT0.5S| H2
   H2 -.->|GET /v2/... lê daqui| CLI["curl / Postman"]
@@ -116,8 +116,9 @@ A seta tracejada é a janela que a coleção Postman exercita: o log primário j
 
 - `mvn test` — 12 testes (`BpmnContractTest` 7, `SayHelloWorkerTest` 5), `Failures: 0`.
 - O contrato BPMN↔worker foi provado por mutação: trocar `say-hello` por `say-helo` reprova `BpmnContractTest`. Teste que nunca falhou não tem valor demonstrado.
-- Coleção Postman — 22 requests, dois modos (58 asserções sem worker, 56 com worker), `0` falhas.
+- Coleção Postman — 22 requests, dois modos (59 asserções sem worker, 57 com worker), `0` falhas. O total exato depende do estado acumulado do cluster; o que é invariante é o delta de 2 e o `0` de falhas.
 - O runner teve um bug que produzia **verde falso**; está em [evidence.md §D4](evidence.md#d4--o-runner-dava-verde-sem-rodar-os-testes) porque é o tipo de falha que passa mais vezes do que quebra.
+- **Duas afirmações desta lesson eram falsas e foram corrigidas:** a REST v2 *tem* o ciclo de Job (`POST /v2/jobs/activation` existe) e o worker fala REST, não gRPC. Um `404` de `POST /v2/jobs` foi lido como ausência de capacidade. Ver [evidence.md](evidence.md#correção-o-ciclo-de-job-existe-na-rest-v2).
 - A coleção foi executada também no **Postman real**, com breakpoint no worker no IntelliJ, e o processo concluiu. Isso confirma que os scripts são código válido do sandbox do Postman, e não só da implementação parcial do runner.
 
 ## O que esta lesson deliberadamente não ensina
@@ -130,7 +131,13 @@ A seta tracejada é a janela que a coleção Postman exercita: o log primário j
 
 ## Conclusão
 
-Cadeia verificada: **Service Task → Job criado no log → ativação por gRPC → worker executa → completion automático → instância `COMPLETED`**. A mesma cadeia sem worker termina em `504` e instância parada em `ACTIVE`, o que é a informação mais útil da lesson: o service task é uma fronteira de execução, e atravessá-la custa um segundo comando.
+Cadeia verificada: **Service Task → Job criado no log → ativação pelo Gateway → worker executa → completion automático → instância `COMPLETED`**. A mesma cadeia sem worker termina em `504` e instância parada em `ACTIVE`, o que é a informação mais útil da lesson: o service task é uma fronteira de execução, e atravessá-la custa um segundo comando.
+
+O transporte é **REST na 8080**, não gRPC: o processo Java do worker foi observado com conexão
+estabelecida em `127.0.0.1:8080` e nenhuma em `26500`. Uma versão anterior desta lesson dizia
+"ativação por gRPC" e afirmava que a REST v2 não ativava Job. Era falso — `POST /v2/jobs/activation`
+existe e responde, e o `404` que originou a conclusão era só de `POST /v2/jobs`, um path que não
+existe. A correção está em [evidence.md](evidence.md#correção-o-ciclo-de-job-existe-na-rest-v2).
 
 ## Diagram Review
 

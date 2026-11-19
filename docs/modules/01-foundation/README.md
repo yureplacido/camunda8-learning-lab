@@ -10,7 +10,7 @@ Pré-requisito: [Módulo 00 — Orientation](../00-orientation/README.md).
 | [002](../../lessons/002-deploy-instance-worker/lesson.md) | [Deploy, Instância e Primeiro Job Worker](../../lessons/002-deploy-instance-worker/lesson.md) | `completed` |
 | [003](../../lessons/003-retries-incidentes-recuperacao/lesson.md) | [Retries, incidentes e recuperação](../../lessons/003-retries-incidentes-recuperacao/lesson.md) | `completed` |
 | [004](../../lessons/004-escala-concorrencia-worker/lesson.md) | [Escala e concorrência do worker](../../lessons/004-escala-concorrencia-worker/lesson.md) | `completed` |
-| 005 | Ciclo de vida do Job e backpressure | planejada |
+| [005](../../lessons/005-ciclo-vida-job-backpressure/lesson.md) | Ciclo de vida do Job e backpressure | `completed` |
 
 > **Numeração reenquadrada.** O módulo foi planejado com 002 Modelo de execução do Zeebe, 003
 > Execução BPMN, 004 Instâncias e variáveis, 005 Jobs e job workers, 006 Retries e incidentes. A

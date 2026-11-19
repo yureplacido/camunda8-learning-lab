@@ -35,7 +35,7 @@ para comparar.
 | [002](lessons/002-deploy-instance-worker/lesson.md) | Deploy, Instância e Primeiro Job Worker | `completed` |
 | [003](lessons/003-retries-incidentes-recuperacao/lesson.md) | Retries, incidentes e recuperação | `completed` |
 | [004](lessons/004-escala-concorrencia-worker/lesson.md) | Escala e concorrência do worker | `completed` |
-| 005 | Ciclo de vida do Job e backpressure | planejada |
+| [005](lessons/005-ciclo-vida-job-backpressure/lesson.md) | Ciclo de vida do Job e backpressure | `completed` |
 
 **Ajuste de numeração, registrado em vez de sobrescrito.** Este módulo foi planejado como
 001 Onde os conceitos vivem · 002 Modelo de execução do Zeebe · 003 Execução BPMN · 004 Instâncias
@@ -56,7 +56,10 @@ deliberada para não duplicar o Módulo 3:
 - **004 — Escala e concorrência do worker:** o que o motor garante quando vários clientes pedem o
   mesmo `job type` — ativação exclusiva, limite por request de ativação e fila no Broker.
 - **005 — Ciclo de vida do Job e backpressure:** os estados do Job e por que o worker controla o
-  próprio ritmo (*polling* / *long polling*), sem configuração Java.
+  próprio ritmo (*polling* / *long polling*), ~~sem configuração Java.~~ **Correção da reabertura:**
+  há um worker Java mínimo na 005 para **exercitar** o contrato; nada sobre `pollInterval`,
+  concorrência ou métricas é ensinado — isso continua na 014. O `request-timeout: 30s` presente no
+  `application.yml` é default herdado do padrão dos módulos 002/003, não um mecanismo experimental.
 - **014 — Configuração e observabilidade de workers Java/Spring Boot:** `maxJobsActive`,
   `pollInterval`, concorrência de handler, *graceful shutdown* e métricas.
 

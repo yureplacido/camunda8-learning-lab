@@ -104,6 +104,46 @@
     {
       "key": "manualKeysC",
       "value": "[]"
+    },
+    {
+      "key": "lifeBpmnPath",
+      "value": "/home/placido/desarrollo/camunda/camunda8-learning-lab/processes/005-ciclo-vida-job-backpressure/lesson-005-lifecycle.bpmn",
+      "type": "string"
+    },
+    {
+      "key": "lifeProcessDefinitionKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lifeInstanceKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lifeJobKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lifeDeadlineCurto",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lifePatchJobKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lifePatchDeadlineOriginal",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lifeInstanceKeys",
+      "value": "[]",
+      "type": "string"
     }
   ],
   "item": [
@@ -2503,6 +2543,743 @@
               ]
             },
             "description": "A prova central está nos três primeiros testes: 4 + 4 + 2, nenhuma chave repetida e interseção vazia entre `w4-a` e `w4-b`. O poll final conta só as 10 chaves capturadas, nunca o total da busca."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "62 — Ciclo de vida do Job (Lesson 005)",
+      "description": "Ciclo completo do Job sem worker Java. Um `timeout` curto gera `TIMED_OUT` para o mesmo `jobKey`, a reativação preserva `retries`, e a sondagem com fila vazia separa `requestTimeout` de `timeout`. O PATCH encurta o lease. Rode no Runner: a pasta é sequencial e limpa o resíduo no último request. Nenhum `503` é provocado — backpressure por carga é `N/A`.",
+      "item": [
+        {
+          "name": "00 — pré-checagem: zero Jobs CREATED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const total = pm.response.json().page.totalItems;",
+                  "pm.collectionVariables.set('lifeInstanceKeys', '[]');",
+                  "pm.test('pre-checagem: zero Jobs CREATED do tipo 005', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(total).to.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"filter\":{\"type\":\"lesson-005-lifecycle\",\"state\":\"CREATED\"}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "search"
+              ]
+            },
+            "description": "Filtro obrigatório por `state: CREATED`: sem ele o search devolve os Jobs COMPLETED de rodadas anteriores (004 E10)."
+          },
+          "response": []
+        },
+        {
+          "name": "01 — deploy do BPMN 005 (captura a key)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d = pm.response.json();",
+                  "const pd = d.deployments[0].processDefinition;",
+                  "pm.test('deploy respondeu 200 com deploymentKey', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(d.deploymentKey).to.be.a('string');",
+                  "});",
+                  "pm.test('process definition da lesson capturada', function () {",
+                  "  pm.collectionVariables.set('lifeProcessDefinitionKey', String(pd.processDefinitionKey));",
+                  "  pm.expect(pd.processDefinitionId).to.eql('lesson-005-ciclo-vida-job');",
+                  "  pm.expect(pm.collectionVariables.get('lifeProcessDefinitionKey')).to.match(/^\\d+$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "resources",
+                  "type": "file",
+                  "src": "{{lifeBpmnPath}}",
+                  "contentType": "text/xml"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/deployments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "deployments"
+              ]
+            },
+            "description": "O BPMN tem um único service task `lesson-005-lifecycle` com `retries=\"3\"`."
+          },
+          "response": []
+        },
+        {
+          "name": "02 — criar instância (captura a key)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const k = String(pm.response.json().processInstanceKey);",
+                  "const arr = JSON.parse(pm.collectionVariables.get('lifeInstanceKeys'));",
+                  "arr.push(k);",
+                  "pm.collectionVariables.set('lifeInstanceKey', k);",
+                  "pm.collectionVariables.set('lifeInstanceKeys', JSON.stringify(arr));",
+                  "pm.test('instancia criada: ' + k, function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(k).to.match(/^\\d+$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"processDefinitionKey\":\"{{lifeProcessDefinitionKey}}\",\"variables\":{\"runId\":\"005-lifecycle\",\"seq\":1}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/process-instances",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "process-instances"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "03 — ver a fila antes da ativação (poll)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let visiveis = pm.response.json().page.totalItems;",
+                  "for (let attempt = 0; attempt < 20 && visiveis < 1; attempt += 1) {",
+                  "  await new Promise(function (resolve) { setTimeout(resolve, 500); });",
+                  "  const r = await pm.sendRequest({",
+                  "    url: pm.collectionVariables.get('baseUrl') + '/v2/jobs/search',",
+                  "    method: 'POST',",
+                  "    header: { 'Content-Type': 'application/json' },",
+                  "    body: JSON.stringify({ filter: { type: 'lesson-005-lifecycle', state: 'CREATED' } })",
+                  "  });",
+                  "  visiveis = r.json().page.totalItems;",
+                  "}",
+                  "pm.test('um Job CREATED visivel antes da ativacao', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(visiveis).to.eql(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"filter\":{\"type\":\"lesson-005-lifecycle\",\"state\":\"CREATED\"}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "search"
+              ]
+            },
+            "description": "A projeção secundária atrasa; a 004 E17 registrou `esperava 10, veio 2` sem poll."
+          },
+          "response": []
+        },
+        {
+          "name": "04 — ativação curta: timeout 4000, requestTimeout -1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const jobs = body.jobs || [];",
+                  "const job = jobs[0] || {};",
+                  "pm.collectionVariables.set('lifeJobKey', String(job.jobKey || ''));",
+                  "pm.collectionVariables.set('lifeDeadlineCurto', String(job.deadline || ''));",
+                  "pm.collectionVariables.set('jobKey', String(job.jobKey || ''));",
+                  "pm.test('um Job ativado por w5-curto', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(jobs.length).to.eql(1);",
+                  "});",
+                  "pm.test('payload prova o emprestimo', function () {",
+                  "  pm.expect(job.worker).to.eql('w5-curto');",
+                  "  pm.expect(job.retries).to.eql(3);",
+                  "  pm.expect(String(job.jobKey)).to.match(/^\\d+$/);",
+                  "  pm.expect(job.deadline).to.be.a('number');",
+                  "  pm.expect(pm.collectionVariables.get('lifeDeadlineCurto')).to.match(/^\\d+$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"worker\":\"w5-curto\",\"type\":\"lesson-005-lifecycle\",\"timeout\":4000,\"maxJobsToActivate\":1,\"requestTimeout\":-1}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "activation"
+              ]
+            },
+            "description": "`timeout` é o prazo do empréstimo; `requestTimeout: -1` desliga o long polling. São relógios diferentes."
+          },
+          "response": []
+        },
+        {
+          "name": "05 — TIMED_OUT do mesmo jobKey (poll)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const key = pm.collectionVariables.get('lifeJobKey');",
+                  "let found = (pm.response.json().items || []).find(function (j) { return String(j.jobKey) === key; });",
+                  "for (let attempt = 0; attempt < 30 && !found; attempt += 1) {",
+                  "  await new Promise(function (resolve) { setTimeout(resolve, 500); });",
+                  "  const r = await pm.sendRequest({",
+                  "    url: pm.collectionVariables.get('baseUrl') + '/v2/jobs/search',",
+                  "    method: 'POST',",
+                  "    header: { 'Content-Type': 'application/json' },",
+                  "    body: JSON.stringify({ filter: { type: 'lesson-005-lifecycle', state: 'TIMED_OUT' } })",
+                  "  });",
+                  "  found = (r.json().items || []).find(function (j) { return String(j.jobKey) === key; });",
+                  "}",
+                  "pm.test('TIMED_OUT observado para o jobKey capturado', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(!!found).to.eql(true);",
+                  "  pm.expect(String(found.jobKey)).to.eql(key);",
+                  "});",
+                  "pm.test('retries intactos depois do timeout', function () {",
+                  "  pm.expect(found.retries).to.eql(3);",
+                  "});",
+                  "pm.test('deadline ISO do search e epoch da ativacao sao o mesmo instante', function () {",
+                  "  pm.expect(found.deadline).to.match(/^\\d{4}-\\d{2}-\\d{2}T/);",
+                  "  pm.expect(new Date(found.deadline).getTime()).to.eql(Number(pm.collectionVariables.get('lifeDeadlineCurto')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"filter\":{\"type\":\"lesson-005-lifecycle\",\"state\":\"TIMED_OUT\"}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "search"
+              ]
+            },
+            "description": "A prova é a identidade do `jobKey`, nunca `items[0]`. O `deadline` da ativação é epoch ms; o do search é ISO."
+          },
+          "response": []
+        },
+        {
+          "name": "06 — reativação: mesmo jobKey, worker diferente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const jobs = pm.response.json().jobs || [];",
+                  "const job = jobs[0] || {};",
+                  "pm.test('reativacao devolveu um Job', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(jobs.length).to.eql(1);",
+                  "});",
+                  "pm.test('mesmo jobKey voltou', function () {",
+                  "  pm.expect(String(job.jobKey)).to.eql(pm.collectionVariables.get('lifeJobKey'));",
+                  "});",
+                  "pm.test('worker trocou e retries preservado', function () {",
+                  "  pm.expect(job.worker).to.eql('w5-recupera');",
+                  "  pm.expect(job.retries).to.eql(3);",
+                  "});",
+                  "pm.test('novo deadline e maior que o do emprestimo curto', function () {",
+                  "  pm.expect(job.deadline).to.be.a('number');",
+                  "  pm.expect(Number(job.deadline)).to.above(Number(pm.collectionVariables.get('lifeDeadlineCurto')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"worker\":\"w5-recupera\",\"type\":\"lesson-005-lifecycle\",\"timeout\":120000,\"maxJobsToActivate\":1,\"requestTimeout\":-1}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "activation"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "07 — completion e instância COMPLETED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('completion aceito com 204', function () {",
+                  "  pm.expect(pm.response.code).to.eql(204);",
+                  "});",
+                  "const key = pm.collectionVariables.get('lifeInstanceKey');",
+                  "const pd = pm.collectionVariables.get('lifeProcessDefinitionKey');",
+                  "let inst = null;",
+                  "for (let attempt = 0; attempt < 20; attempt += 1) {",
+                  "  const r = await pm.sendRequest({",
+                  "    url: pm.collectionVariables.get('baseUrl') + '/v2/process-instances/search',",
+                  "    method: 'POST',",
+                  "    header: { 'Content-Type': 'application/json' },",
+                  "    body: JSON.stringify({ filter: { processDefinitionKey: pd } })",
+                  "  });",
+                  "  inst = (r.json().items || []).find(function (i) { return String(i.processInstanceKey) === key; });",
+                  "  if (inst && inst.state === 'COMPLETED') break;",
+                  "  await new Promise(function (resolve) { setTimeout(resolve, 500); });",
+                  "}",
+                  "pm.test('instancia da ativacao curta COMPLETED', function () {",
+                  "  pm.expect(inst && inst.state).to.eql('COMPLETED');",
+                  "});",
+                  "const fila = await pm.sendRequest({",
+                  "  url: pm.collectionVariables.get('baseUrl') + '/v2/jobs/search',",
+                  "  method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: JSON.stringify({ filter: { type: 'lesson-005-lifecycle', state: 'CREATED' } })",
+                  "});",
+                  "pm.test('nenhum Job CREATED sobrou', function () {",
+                  "  pm.expect(fila.json().page.totalItems).to.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/{{jobKey}}/completion",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "{{jobKey}}",
+                "completion"
+              ]
+            },
+            "description": "`204` é sucesso sem corpo: chamar `pm.response.json()` aqui estouraria."
+          },
+          "response": []
+        },
+        {
+          "name": "08 — sondagem: requestTimeout -1 (sem long polling)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('fila vazia com requestTimeout -1', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect((pm.response.json().jobs || []).length).to.eql(0);",
+                  "});",
+                  "const hdr = { 'Content-Type': 'application/json' };",
+                  "const t0 = Date.now();",
+                  "const r = await pm.sendRequest({",
+                  "  url: pm.collectionVariables.get('baseUrl') + '/v2/jobs/activation',",
+                  "  method: 'POST',",
+                  "  header: hdr,",
+                  "  body: JSON.stringify({ worker: 'w5-probe', type: 'lesson-005-lifecycle', timeout: 60000, maxJobsToActivate: 1, requestTimeout: -1 })",
+                  "});",
+                  "const elapsed = Date.now() - t0;",
+                  "pm.test('resposta imediata com requestTimeout -1: ' + elapsed + 'ms', function () {",
+                  "  pm.expect(r.code).to.eql(200);",
+                  "  pm.expect((r.json().jobs || []).length).to.eql(0);",
+                  "  pm.expect(elapsed).to.below(1000);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"worker\":\"w5-probe\",\"type\":\"lesson-005-lifecycle\",\"timeout\":60000,\"maxJobsToActivate\":1,\"requestTimeout\":-1}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "activation"
+              ]
+            },
+            "description": "O runner não expõe `pm.response.responseTime`; o tempo é medido com `Date.now()` em volta de `pm.sendRequest`."
+          },
+          "response": []
+        },
+        {
+          "name": "09 — sondagem: requestTimeout 2000 (long polling)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('fila vazia com requestTimeout 2000', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect((pm.response.json().jobs || []).length).to.eql(0);",
+                  "});",
+                  "const hdr = { 'Content-Type': 'application/json' };",
+                  "const t0 = Date.now();",
+                  "const r = await pm.sendRequest({",
+                  "  url: pm.collectionVariables.get('baseUrl') + '/v2/jobs/activation',",
+                  "  method: 'POST',",
+                  "  header: hdr,",
+                  "  body: JSON.stringify({ worker: 'w5-probe', type: 'lesson-005-lifecycle', timeout: 60000, maxJobsToActivate: 1, requestTimeout: 2000 })",
+                  "});",
+                  "const elapsed = Date.now() - t0;",
+                  "pm.test('request esperou a fila com requestTimeout 2000: ' + elapsed + 'ms', function () {",
+                  "  pm.expect(r.code).to.eql(200);",
+                  "  pm.expect((r.json().jobs || []).length).to.eql(0);",
+                  "  pm.expect(elapsed).to.aboveOrEqual(1900);",
+                  "  pm.expect(elapsed).to.below(8000);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"worker\":\"w5-probe\",\"type\":\"lesson-005-lifecycle\",\"timeout\":60000,\"maxJobsToActivate\":1,\"requestTimeout\":2000}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "activation"
+              ]
+            },
+            "description": "O que se mede é o tempo da **request**, não vazão de Jobs."
+          },
+          "response": []
+        },
+        {
+          "name": "10 — PATCH changeset.timeout: encurta o lease",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const instKey = String(pm.response.json().processInstanceKey);",
+                  "const tracked = JSON.parse(pm.collectionVariables.get('lifeInstanceKeys'));",
+                  "tracked.push(instKey);",
+                  "pm.collectionVariables.set('lifeInstanceKeys', JSON.stringify(tracked));",
+                  "pm.test('instancia do PATCH criada: ' + instKey, function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(instKey).to.match(/^\\d+$/);",
+                  "});",
+                  "const base = pm.collectionVariables.get('baseUrl');",
+                  "const hdr = { 'Content-Type': 'application/json' };",
+                  "async function activation(worker, timeout) {",
+                  "  return pm.sendRequest({",
+                  "    url: base + '/v2/jobs/activation', method: 'POST', header: hdr,",
+                  "    body: JSON.stringify({ worker: worker, type: 'lesson-005-lifecycle', timeout: timeout, maxJobsToActivate: 1, requestTimeout: -1 })",
+                  "  });",
+                  "}",
+                  "let visiveis = 0;",
+                  "for (let attempt = 0; attempt < 20; attempt += 1) {",
+                  "  const r = await pm.sendRequest({",
+                  "    url: base + '/v2/jobs/search', method: 'POST', header: hdr,",
+                  "    body: JSON.stringify({ filter: { type: 'lesson-005-lifecycle', state: 'CREATED' } })",
+                  "  });",
+                  "  visiveis = r.json().page.totalItems;",
+                  "  if (visiveis === 1) break;",
+                  "  await new Promise(function (resolve) { setTimeout(resolve, 500); });",
+                  "}",
+                  "pm.test('um Job CREATED para o PATCH', function () {",
+                  "  pm.expect(visiveis).to.eql(1);",
+                  "});",
+                  "const act = await activation('w5-patch', 120000);",
+                  "const jobs = act.json().jobs || [];",
+                  "const patchedKey = String((jobs[0] || {}).jobKey || '');",
+                  "const originalDeadline = Number((jobs[0] || {}).deadline || 0);",
+                  "pm.collectionVariables.set('lifePatchJobKey', patchedKey);",
+                  "pm.collectionVariables.set('lifePatchDeadlineOriginal', String(originalDeadline));",
+                  "pm.test('ativacao longa capturou o deadline original', function () {",
+                  "  pm.expect(act.code).to.eql(200);",
+                  "  pm.expect(jobs.length).to.eql(1);",
+                  "  pm.expect(patchedKey).to.match(/^\\d+$/);",
+                  "  pm.expect(originalDeadline).to.above(0);",
+                  "});",
+                  "const patch = await pm.sendRequest({",
+                  "  url: base + '/v2/jobs/' + patchedKey, method: 'PATCH', header: hdr,",
+                  "  body: JSON.stringify({ changeset: { timeout: 3000 } })",
+                  "});",
+                  "pm.test('PATCH changeset.timeout aceito com 204', function () {",
+                  "  pm.expect(patch.code).to.eql(204);",
+                  "});",
+                  "await new Promise(function (resolve) { setTimeout(resolve, 5000); });",
+                  "pm.test('5s ainda estao dentro do lease original de 120s', function () {",
+                  "  pm.expect(Date.now()).to.below(originalDeadline);",
+                  "});",
+                  "const re = await activation('w5-patch-2', 60000);",
+                  "const reJobs = re.json().jobs || [];",
+                  "const reJob = reJobs[0] || {};",
+                  "pm.test('Job voltou antes do deadline original', function () {",
+                  "  pm.expect(reJobs.length).to.eql(1);",
+                  "  pm.expect(String(reJob.jobKey)).to.eql(patchedKey);",
+                  "  pm.expect(reJob.worker).to.eql('w5-patch-2');",
+                  "  pm.expect(reJob.retries).to.eql(3);",
+                  "});",
+                  "pm.test('novo deadline e o lease da NOVA ativacao (60s), nao o PATCH', function () {",
+                  "  const novo = Number(reJob.deadline);",
+                  "  pm.expect(novo).to.above(Date.now() + 50000);",
+                  "  pm.expect(novo).to.below(Date.now() + 70000);",
+                  "});",
+                  "const done = await pm.sendRequest({",
+                  "  url: base + '/v2/jobs/' + patchedKey + '/completion', method: 'POST', header: hdr, body: '{}'",
+                  "});",
+                  "pm.test('completion do Job do PATCH: 204', function () {",
+                  "  pm.expect(done.code).to.eql(204);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"processDefinitionKey\":\"{{lifeProcessDefinitionKey}}\",\"variables\":{\"runId\":\"005-patch\",\"seq\":2}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/process-instances",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "process-instances"
+              ]
+            },
+            "description": "O PATCH **encurta** o prazo; a prova é o Job ter voltado 5 s depois, e não uma comparação direta de `deadline`: o `deadline` da reativação pertence ao novo lease de 60 s. Correção registrada na evidence."
+          },
+          "response": []
+        },
+        {
+          "name": "11 — limpeza final: zero CREATED e instâncias COMPLETED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('zero Jobs CREATED no fim', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(pm.response.json().page.totalItems).to.eql(0);",
+                  "});",
+                  "const keys = JSON.parse(pm.collectionVariables.get('lifeInstanceKeys'));",
+                  "const pd = pm.collectionVariables.get('lifeProcessDefinitionKey');",
+                  "let insts = [];",
+                  "for (let attempt = 0; attempt < 20; attempt += 1) {",
+                  "  const r = await pm.sendRequest({",
+                  "    url: pm.collectionVariables.get('baseUrl') + '/v2/process-instances/search',",
+                  "    method: 'POST',",
+                  "    header: { 'Content-Type': 'application/json' },",
+                  "    body: JSON.stringify({ filter: { processDefinitionKey: pd } })",
+                  "  });",
+                  "  insts = r.json().items || [];",
+                  "  const completas = keys.every(function (k) {",
+                  "    const i = insts.find(function (x) { return String(x.processInstanceKey) === k; });",
+                  "    return i && i.state === 'COMPLETED';",
+                  "  });",
+                  "  if (completas) break;",
+                  "  await new Promise(function (resolve) { setTimeout(resolve, 500); });",
+                  "}",
+                  "pm.test('instancias rastreadas COMPLETED: ' + keys.length, function () {",
+                  "  pm.expect(keys.length).to.eql(2);",
+                  "  pm.expect(keys.every(function (k) {",
+                  "    const i = insts.find(function (x) { return String(x.processInstanceKey) === k; });",
+                  "    return i && i.state === 'COMPLETED';",
+                  "  })).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"filter\":{\"type\":\"lesson-005-lifecycle\",\"state\":\"CREATED\"}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "search"
+              ]
+            }
           },
           "response": []
         }

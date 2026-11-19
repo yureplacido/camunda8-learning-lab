@@ -48,6 +48,14 @@ No Postman: **Import** → escolher o `.json`. Não precisa de collection runner
 | `orderProcessDefinitionKey` | — | request de deploy da pasta `50` |
 | `scaleBpmnPath` | caminho absoluto do `lesson-004-scale.bpmn` | **ajustar para a sua máquina** |
 | `scaleProcessDefinitionKey` | — | request de deploy da pasta `60` (compartilhado com a `61`) |
+| `lifeBpmnPath` | caminho absoluto do `lesson-005-lifecycle.bpmn` | **ajustar para a sua máquina** |
+| `lifeProcessDefinitionKey` | — | request `01` da pasta `62` |
+| `lifeInstanceKey` | — | request `02` da pasta `62` |
+| `lifeJobKey` | — | request `04` da pasta `62` |
+| `lifeDeadlineCurto` | — | request `04` da pasta `62` (`deadline` em epoch ms) |
+| `lifePatchJobKey` | — | request `10` da pasta `62` |
+| `lifePatchDeadlineOriginal` | — | request `10` da pasta `62` (prazo de 120 s antes do PATCH) |
+| `lifeInstanceKeys` | `[]` | requests `00`, `02` e `10` da pasta `62` |
 | `manualInstanceKeys` | `[]` | paste manual `61`: request `00` reinicia, request `02` acrescenta |
 | `manualKeysA` | `[]` | pasta `61`: request `04` |
 | `manualKeysB` | `[]` | pasta `61`: request `05` |
@@ -56,7 +64,9 @@ No Postman: **Import** → escolher o `.json`. Não precisa de collection runner
 | `jobKey` | — | busca do Job |
 | `incidentKey` | — | busca do incidente |
 
-`bpmnPath`, `orderBpmnPath` e `scaleBpmnPath` são os únicos valores que não sobrevivem a outra máquina. Ajuste em **Variables** da coleção antes de rodar as pastas `20`, `50` e `60`.
+`bpmnPath`, `orderBpmnPath`, `scaleBpmnPath` e `lifeBpmnPath` são os únicos valores que não sobrevivem a outra máquina. Ajuste em **Variables** da coleção antes de rodar as pastas `20`, `50`, `60` e `62`.
+
+A pasta `62` continua usando a variável `jobKey` (já existente) no path do request de `completion`: o validador cruza o nome do parâmetro da URL com a spec viva, e o path é `/v2/jobs/{jobKey}/completion`. Um `{{lifeJobKey}}` ali reprovaria no validador, embora o valor seja o mesmo.
 
 ## Ordem
 
@@ -72,6 +82,7 @@ As pastas são numeradas porque dependem umas das outras. Rodar `30` sem `20` n�
 | `50 — Retries, incidentes e recuperação` | 13 | `orderBpmnPath` válido **e o `retry-worker` no ar** |
 | `60 — Escala e concorrência do worker` | 2 | `scaleBpmnPath` válido |
 | `61 — Prova manual da Lesson 004` | 9 | `scaleBpmnPath` válido; execução **manual**, não no Runner |
+| `62 — Ciclo de vida do Job (Lesson 005)` | 12 | `lifeBpmnPath` válido; sequencial no Runner |
 | `90 — Descoberta da API` | 2 | — |
 
 ## A pasta `50` exige worker — e essa é a diferença
@@ -121,6 +132,35 @@ A pasta `60` executa tudo dentro de um script; a `61` abre o experimento para in
 A prova central está no request `08`, não no `200`: a disjunção de `jobKey` mostra que o mesmo Job nunca foi entregue a dois clientes. `w4-drain` ter recebido os 2 restantes mostra a fila no Broker.
 
 Execução de verificação: o fluxo foi simulado numa cópia temporária com o request `02` repetido dez vezes — `18 request(s), 22 asserção(ões), 0 request(s) com falha`. O validador reportou `OK: 46 request(s) conferem com a spec viva do cluster.` (E17).
+
+## A pasta `62` — empréstimo, `TIMED_OUT` e os dois relógios
+
+~~A pasta `62` reproduz a Lesson 005 sem worker Java.~~ **Correção da reabertura:** a pasta `62` continua sem worker e com o tipo `lesson-005-lifecycle`; o worker Java reaberto usa o tipo separado `lesson-005-lifecycle-java` e não é exigido pelo Runner. Ela é sequencial e roda inteira no Runner:
+
+1. `00` — pré-checagem com `state: CREATED`; reinicia `lifeInstanceKeys`.
+2. `01` — deploy do BPMN `lesson-005-lifecycle`; captura `lifeProcessDefinitionKey`.
+3. `02` — cria uma instância; captura `lifeInstanceKey`.
+4. `03` — faz poll da projeção até 1 Job `CREATED` aparecer.
+5. `04` — ativa com `timeout: 4000` e `requestTimeout: -1`; guarda `jobKey`, `worker`, `retries` e o
+   `deadline` em epoch ms.
+6. `05` — faz poll até `TIMED_OUT` para **aquele** `jobKey` e converte o `deadline` ISO do search para
+   epoch, provando que são o mesmo instante.
+7. `06` — reativa com `w5-recupera`: mesmo `jobKey`, `retries: 3`, novo `deadline`.
+8. `07` — `completion` com `204`, poll da instância `COMPLETED` e `CREATED: 0`.
+9. `08` / `09` — com a fila vazia, medem `requestTimeout: -1` contra `2000`. O runner não expõe
+   `pm.response.responseTime`, então o tempo vem de `Date.now()` em volta de `pm.sendRequest`. O que
+   se mede é a **request**, não vazão.
+10. `10` — nova instância, ativação com `timeout: 120000`, `PATCH {"changeset":{"timeout":3000}}`,
+    espera de 5 s e reativação: o Job volta antes do prazo original. O `deadline` devolvido na
+    reativação pertence ao **novo** `timeout: 60000` — compará-lo diretamente com o do PATCH seria
+    erro; a correção está registrada na evidence da Lesson 005.
+11. `11` — varre o resíduo: `CREATED: 0` e as duas instâncias rastreadas `COMPLETED`.
+
+A prova central não é o `200`: é a identidade do `jobKey` entre `04`, `05`, `06` e `10`, com
+`retries: 3` em todos. Nenhum `503`/`RESOURCE_EXHAUSTED` é provocado — sem carga, isso é `N/A` com
+motivo. Execução real: `12 request(s), 31 asserção(ões), 0 request(s) com falha`; validador:
+`OK: 58 request(s) conferem com a spec viva do cluster.` (E12 da Lesson 005). A prova Java
+correspondente está na E14 da lesson, fora da coleção.
 
 ## Os dois modos da pasta `30`
 

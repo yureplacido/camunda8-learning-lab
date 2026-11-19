@@ -80,6 +80,30 @@
     {
       "key": "incidentKey",
       "value": ""
+    },
+    {
+      "key": "scaleBpmnPath",
+      "value": "/home/placido/desarrollo/camunda/camunda8-learning-lab/processes/004-escala-concorrencia-worker/lesson-004-scale.bpmn"
+    },
+    {
+      "key": "scaleProcessDefinitionKey",
+      "value": ""
+    },
+    {
+      "key": "manualInstanceKeys",
+      "value": "[]"
+    },
+    {
+      "key": "manualKeysA",
+      "value": "[]"
+    },
+    {
+      "key": "manualKeysB",
+      "value": "[]"
+    },
+    {
+      "key": "manualKeysC",
+      "value": "[]"
     }
   ],
   "item": [
@@ -2020,6 +2044,471 @@
       ]
     },
     {
+      "name": "61 — Prova manual da Lesson 004",
+      "description": "Prova manual, request a request — **não rodar no Collection Runner**: o request `02` precisa ser enviado dez vezes, com `seq` de 1 a 10. Cada ativação guarda os `jobKey` em variáveis de coleção; o request `08` assere a disjunção. Os completions rodam por script no request `07` para o lease de 120 s não expirar.",
+      "item": [
+        {
+          "name": "00 — pré-checagem: zero Jobs CREATED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const total = pm.response.json().page.totalItems;",
+                  "pm.collectionVariables.set('manualInstanceKeys', '[]');",
+                  "pm.collectionVariables.set('manualKeysA', '[]');",
+                  "pm.collectionVariables.set('manualKeysB', '[]');",
+                  "pm.collectionVariables.set('manualKeysC', '[]');",
+                  "pm.test('pre-checagem: zero Jobs residuais', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(total).to.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"filter\":{\"type\":\"lesson-004-scale\",\"state\":\"CREATED\"}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "search"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "01 — deploy do BPMN 004 (captura a key)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d = pm.response.json();",
+                  "const pd = d.deployments[0].processDefinition;",
+                  "pm.test('200 com deploymentKey', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(d.deploymentKey).to.be.a('string');",
+                  "});",
+                  "pm.test('capturo a chave da process definition', function () {",
+                  "  pm.collectionVariables.set('scaleProcessDefinitionKey', String(pd.processDefinitionKey));",
+                  "  pm.expect(pm.collectionVariables.get('scaleProcessDefinitionKey')).to.match(/^\\d+$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "resources",
+                  "type": "file",
+                  "src": "{{scaleBpmnPath}}",
+                  "contentType": "text/xml"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/deployments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "deployments"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "02 — criar instância (ENVIAR 10x: seq 1 a 10)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const k = String(pm.response.json().processInstanceKey);",
+                  "const arr = JSON.parse(pm.collectionVariables.get('manualInstanceKeys'));",
+                  "arr.push(k);",
+                  "pm.collectionVariables.set('manualInstanceKeys', JSON.stringify(arr));",
+                  "pm.test('instancia criada: ' + k, function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(k).to.match(/^\\d+$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"processDefinitionKey\":\"{{scaleProcessDefinitionKey}}\",\"variables\":{\"runId\":\"004-manual\",\"seq\":1}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/process-instances",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "process-instances"
+              ]
+            },
+            "description": "Envie este request dez vezes, mudando apenas `seq` no corpo (1 a 10). Cada envio acrescenta a `processInstanceKey` na variável `manualInstanceKeys`."
+          },
+          "response": []
+        },
+        {
+          "name": "03 — ver a fila antes de qualquer ativação",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let visiveis = pm.response.json().page.totalItems;",
+                  "for (let attempt = 0; attempt < 16 && visiveis < 10; attempt += 1) {",
+                  "  await new Promise(function (resolve) { setTimeout(resolve, 500); });",
+                  "  const r = await pm.sendRequest({",
+                  "    url: pm.collectionVariables.get('baseUrl') + '/v2/jobs/search',",
+                  "    method: 'POST',",
+                  "    header: { 'Content-Type': 'application/json' },",
+                  "    body: JSON.stringify({ filter: { type: 'lesson-004-scale', state: 'CREATED' } })",
+                  "  });",
+                  "  visiveis = r.json().page.totalItems;",
+                  "}",
+                  "pm.test('fila visivel antes de qualquer ativacao', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(visiveis).to.eql(10);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"filter\":{\"type\":\"lesson-004-scale\",\"state\":\"CREATED\"}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "search"
+              ]
+            },
+            "description": "O script faz poll até a projeção mostrar 10 Jobs: o `/v2/jobs/search` lê a projeção secundária e atrasa ~3 s (evidence E9/E16). A primeira versão deste request não fazia poll e reprovou com `esperava 10, veio 2` — correção registrada em evidence E17."
+          },
+          "response": []
+        },
+        {
+          "name": "04 — ativação w4-a (4)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const jobs = pm.response.json().jobs;",
+                  "const keys = jobs.map(function (j) { return j.jobKey; });",
+                  "pm.collectionVariables.set('manualKeysA', JSON.stringify(keys));",
+                  "pm.test('w4-a recebeu 4 Jobs', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(jobs.length).to.eql(4);",
+                  "  pm.expect(jobs.every(function (j) { return j.worker === 'w4-a'; })).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"worker\":\"w4-a\",\"type\":\"lesson-004-scale\",\"timeout\":120000,\"maxJobsToActivate\":4}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "activation"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "05 — ativação w4-b (4)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const jobs = pm.response.json().jobs;",
+                  "const keys = jobs.map(function (j) { return j.jobKey; });",
+                  "pm.collectionVariables.set('manualKeysB', JSON.stringify(keys));",
+                  "pm.test('w4-b recebeu 4 Jobs', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(jobs.length).to.eql(4);",
+                  "  pm.expect(jobs.every(function (j) { return j.worker === 'w4-b'; })).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"worker\":\"w4-b\",\"type\":\"lesson-004-scale\",\"timeout\":120000,\"maxJobsToActivate\":4}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "activation"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "06 — ativação w4-drain (2)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const jobs = pm.response.json().jobs;",
+                  "const keys = jobs.map(function (j) { return j.jobKey; });",
+                  "pm.collectionVariables.set('manualKeysC', JSON.stringify(keys));",
+                  "pm.test('w4-drain recebeu os 2 Jobs restantes', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(jobs.length).to.eql(2);",
+                  "  pm.expect(jobs.every(function (j) { return j.worker === 'w4-drain'; })).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"worker\":\"w4-drain\",\"type\":\"lesson-004-scale\",\"timeout\":120000,\"maxJobsToActivate\":2}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/activation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "activation"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "07 — completar os 10 Jobs (script)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const a = JSON.parse(pm.collectionVariables.get('manualKeysA'));",
+                  "const b = JSON.parse(pm.collectionVariables.get('manualKeysB'));",
+                  "const c = JSON.parse(pm.collectionVariables.get('manualKeysC'));",
+                  "const todos = a.concat(b, c);",
+                  "for (let i = 0; i < todos.length; i += 1) {",
+                  "  const r = await pm.sendRequest({",
+                  "    url: pm.collectionVariables.get('baseUrl') + '/v2/jobs/' + todos[i] + '/completion',",
+                  "    method: 'POST',",
+                  "    header: { 'Content-Type': 'application/json' },",
+                  "    body: '{}'",
+                  "  });",
+                  "  if (r.code !== 204) throw new Error('completion falhou: ' + r.code);",
+                  "}",
+                  "pm.test('10 completions com 204', function () {",
+                  "  pm.expect(todos.length).to.eql(10);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"filter\":{\"type\":\"lesson-004-scale\",\"state\":\"CREATED\"}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "search"
+              ]
+            },
+            "description": "O corpo visível é só um placeholder inofensivo. Os 10 completions acontecem no script para não deixar o lease de 120 s expirar enquanto você clica."
+          },
+          "response": []
+        },
+        {
+          "name": "08 — prova final: disjunção + COMPLETED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const a = JSON.parse(pm.collectionVariables.get('manualKeysA'));",
+                  "const b = JSON.parse(pm.collectionVariables.get('manualKeysB'));",
+                  "const c = JSON.parse(pm.collectionVariables.get('manualKeysC'));",
+                  "const instancias = JSON.parse(pm.collectionVariables.get('manualInstanceKeys'));",
+                  "const todas = a.concat(b, c);",
+                  "pm.test('lotes 4 / 4 / 2', function () {",
+                  "  pm.expect([a.length, b.length, c.length]).to.eql([4, 4, 2]);",
+                  "});",
+                  "pm.test('nenhum jobKey repetido', function () {",
+                  "  pm.expect(new Set(todas).size).to.eql(10);",
+                  "});",
+                  "pm.test('w4-a e w4-b nao compartilham jobKey', function () {",
+                  "  pm.expect(a.filter(function (k) { return b.indexOf(k) !== -1; })).to.eql([]);",
+                  "});",
+                  "let completas = 0;",
+                  "for (let attempt = 0; attempt < 16; attempt += 1) {",
+                  "  const r = await pm.sendRequest({",
+                  "    url: pm.collectionVariables.get('baseUrl') + '/v2/process-instances/search',",
+                  "    method: 'POST',",
+                  "    header: { 'Content-Type': 'application/json' },",
+                  "    body: JSON.stringify({ filter: { processDefinitionKey: pm.collectionVariables.get('scaleProcessDefinitionKey') } })",
+                  "  });",
+                  "  const byKey = {};",
+                  "  ((r.json().items) || []).forEach(function (x) { byKey[String(x.processInstanceKey)] = x.state; });",
+                  "  completas = instancias.filter(function (k) { return byKey[k] === 'COMPLETED'; }).length;",
+                  "  if (completas === 10) break;",
+                  "  await new Promise(function (resolve) { setTimeout(resolve, 500); });",
+                  "}",
+                  "pm.test('as 10 instancias capturadas terminam COMPLETED', function () {",
+                  "  pm.expect(completas).to.eql(10);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"filter\":{\"processDefinitionKey\":\"{{scaleProcessDefinitionKey}}\"}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/process-instances/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "process-instances",
+                "search"
+              ]
+            },
+            "description": "A prova central está nos três primeiros testes: 4 + 4 + 2, nenhuma chave repetida e interseção vazia entre `w4-a` e `w4-b`. O poll final conta só as 10 chaves capturadas, nunca o total da busca."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "90 — Descoberta da API",
       "description": "De onde veio a lista de endpoints desta coleção, e como conferir sem confiar em mim.",
       "item": [
@@ -2100,6 +2589,200 @@
               ]
             },
             "description": "Retorna apenas o bloco `jobMetrics` no perfil local. `exportInterval: PT5M` significa que os dados de Job só chegam ao armazenamento secundário a cada cinco minutos — se alguém esperar o Operate refletir um Job imediatamente, está esperando o intervalo errado."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "60 — Escala e concorrência do worker",
+      "item": [
+        {
+          "name": "Deploy do BPMN 004 (multipart)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d = pm.response.json();",
+                  "const pd = d.deployments[0].processDefinition;",
+                  "pm.test('200 com deploymentKey', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(d.deploymentKey).to.be.a('string');",
+                  "});",
+                  "pm.test('o recurso entrou como process definition da Lesson 004', function () {",
+                  "  pm.expect(pd.processDefinitionId).to.eql('lesson-004-escala-concorrencia');",
+                  "  pm.expect(pd.resourceName).to.eql('lesson-004-scale.bpmn');",
+                  "});",
+                  "pm.test('capturo a chave da process definition', function () {",
+                  "  pm.collectionVariables.set('scaleProcessDefinitionKey', String(pd.processDefinitionKey));",
+                  "  pm.expect(pm.collectionVariables.get('scaleProcessDefinitionKey')).to.match(/^\\d+$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "resources",
+                  "type": "file",
+                  "src": "{{scaleBpmnPath}}",
+                  "contentType": "text/xml"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/deployments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "deployments"
+              ]
+            },
+            "description": "BPMN da Lesson 004 em `processes/004-escala-concorrencia-worker/`. O service task usa o tipo `lesson-004-scale`, distinto de `say-hello` (002) e de `charge-card` (003). A key vem aninhada em `deployments[0].processDefinition`, como na 003."
+          },
+          "response": []
+        },
+        {
+          "name": "Ativação exclusiva, limite por request e fila",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// O request sozinho é só a pré-checagem. O experimento inteiro roda aqui",
+                  "// por pm.sendRequest, para que as três ativações e os dez completions",
+                  "// fiquem no mesmo script e nenhum Job fique com lease expirado.",
+                  "const base = pm.collectionVariables.get('baseUrl');",
+                  "const pdKey = pm.collectionVariables.get('scaleProcessDefinitionKey');",
+                  "const type = 'lesson-004-scale';",
+                  "const runId = '004-run-' + Date.now();",
+                  "const wait = (ms) => new Promise(function (r) { setTimeout(r, ms); });",
+                  "const post = function (path, body) {",
+                  "  return pm.sendRequest({",
+                  "    url: base + path,",
+                  "    method: 'POST',",
+                  "    header: { 'Content-Type': 'application/json' },",
+                  "    body: JSON.stringify(body)",
+                  "  });",
+                  "};",
+                  "",
+                  "pm.test('pre-checagem: zero Jobs residuais', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(pm.response.json().page.totalItems).to.eql(0);",
+                  "});",
+                  "",
+                  "const instanceKeys = [];",
+                  "for (let i = 1; i <= 10; i += 1) {",
+                  "  const r = await post('/v2/process-instances', {",
+                  "    processDefinitionKey: pdKey,",
+                  "    variables: { runId: runId + '-' + i, seq: i }",
+                  "  });",
+                  "  if (r.code !== 200) throw new Error('criacao de instancia falhou: ' + r.code);",
+                  "  instanceKeys.push(String(r.json().processInstanceKey));",
+                  "}",
+                  "",
+                  "const activate = function (worker, max) {",
+                  "  return post('/v2/jobs/activation', {",
+                  "    worker: worker,",
+                  "    type: type,",
+                  "    timeout: 120000,",
+                  "    maxJobsToActivate: max",
+                  "  });",
+                  "};",
+                  "",
+                  "const ra = await activate('w4-a', 4);",
+                  "const rb = await activate('w4-b', 4);",
+                  "const rc = await activate('w4-drain', 2);",
+                  "const ja = ra.json().jobs;",
+                  "const jb = rb.json().jobs;",
+                  "const jc = rc.json().jobs;",
+                  "const keysA = ja.map(function (j) { return j.jobKey; });",
+                  "const keysB = jb.map(function (j) { return j.jobKey; });",
+                  "const keysC = jc.map(function (j) { return j.jobKey; });",
+                  "",
+                  "pm.test('cada ativacao respeita maxJobsToActivate', function () {",
+                  "  pm.expect(ja.length).to.eql(4);",
+                  "  pm.expect(jb.length).to.eql(4);",
+                  "  pm.expect(jc.length).to.eql(2);",
+                  "});",
+                  "pm.test('w4-a e w4-b nao compartilham jobKey', function () {",
+                  "  const duplicatas = keysA.filter(function (k) { return keysB.indexOf(k) !== -1; });",
+                  "  pm.expect(duplicatas).to.eql([]);",
+                  "});",
+                  "pm.test('o campo worker identifica quem recebeu cada Job', function () {",
+                  "  pm.expect(ja.every(function (j) { return j.worker === 'w4-a'; })).to.eql(true);",
+                  "  pm.expect(jb.every(function (j) { return j.worker === 'w4-b'; })).to.eql(true);",
+                  "  pm.expect(jc.every(function (j) { return j.worker === 'w4-drain'; })).to.eql(true);",
+                  "});",
+                  "pm.test('a uniao cobre exatamente as 10 instancias capturadas', function () {",
+                  "  const todas = keysA.concat(keysB, keysC);",
+                  "  pm.expect(new Set(todas).size).to.eql(10);",
+                  "  const instancias = ja.concat(jb, jc).map(function (j) { return String(j.processInstanceKey); });",
+                  "  pm.expect(instancias.slice().sort()).to.eql(instanceKeys.slice().sort());",
+                  "});",
+                  "",
+                  "const todos = ja.concat(jb, jc);",
+                  "for (let i = 0; i < todos.length; i += 1) {",
+                  "  const r = await post('/v2/jobs/' + todos[i].jobKey + '/completion', {});",
+                  "  if (r.code !== 204) throw new Error('completion falhou: ' + r.code);",
+                  "}",
+                  "",
+                  "// search le a projecao secundaria: poll ate as 10 chaves capturadas",
+                  "// aparecerem COMPLETED. Nunca usar items[0] nem contar o total da pasta.",
+                  "let completas = 0;",
+                  "for (let attempt = 0; attempt < 16; attempt += 1) {",
+                  "  const r = await post('/v2/process-instances/search', {",
+                  "    filter: { processDefinitionKey: pdKey }",
+                  "  });",
+                  "  const byKey = {};",
+                  "  (r.json().items || []).forEach(function (x) {",
+                  "    byKey[String(x.processInstanceKey)] = x.state;",
+                  "  });",
+                  "  completas = instanceKeys.filter(function (k) { return byKey[k] === 'COMPLETED'; }).length;",
+                  "  if (completas === 10) break;",
+                  "  await wait(500);",
+                  "}",
+                  "pm.test('as 10 instancias capturadas terminam COMPLETED', function () {",
+                  "  pm.expect(completas).to.eql(10);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"filter\":{\"type\":\"lesson-004-scale\",\"state\":\"CREATED\"}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "jobs",
+                "search"
+              ]
+            },
+            "description": "Prova central da Lesson 004. A pre-checagem filtra `state: CREATED` porque o `/v2/jobs/search` sem filtro de estado devolve tambem os Jobs COMPLETED de execucoes anteriores (descoberta registrada em evidence E10). O script cria 10 instancias, faz tres ativacoes com `worker` distinto e lotes 4/4/2, e assere disjuncao de `jobKey`, campo `worker` no payload e cobertura das 10 instancias. Depois completa os 10 Jobs no mesmo script e faz poll da projecao secundaria. **Nao** usar o estado do search logo apos a ativacao como prova da fila: evidence E9 registrou latencia de indice."
           },
           "response": []
         }

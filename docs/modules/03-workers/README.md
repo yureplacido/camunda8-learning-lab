@@ -3,6 +3,6 @@
 Lessons 012–014:
 - Java/Spring Boot workers
 - Worker testing
-- Worker lifecycle, concurrency and backpressure
+- Java/Spring Boot worker configuration and observability
 
 Deliverable: build and test production-minded job workers.

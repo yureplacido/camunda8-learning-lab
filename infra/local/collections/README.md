@@ -46,11 +46,17 @@ No Postman: **Import** → escolher o `.json`. Não precisa de collection runner
 | `awaitMode` | — | request de `awaitCompletion` |
 | `orderBpmnPath` | caminho absoluto do `order-fulfillment.bpmn` | **ajustar para a sua máquina** |
 | `orderProcessDefinitionKey` | — | request de deploy da pasta `50` |
+| `scaleBpmnPath` | caminho absoluto do `lesson-004-scale.bpmn` | **ajustar para a sua máquina** |
+| `scaleProcessDefinitionKey` | — | request de deploy da pasta `60` (compartilhado com a `61`) |
+| `manualInstanceKeys` | `[]` | paste manual `61`: request `00` reinicia, request `02` acrescenta |
+| `manualKeysA` | `[]` | pasta `61`: request `04` |
+| `manualKeysB` | `[]` | pasta `61`: request `05` |
+| `manualKeysC` | `[]` | pasta `61`: request `06` |
 | `elementInstanceKey` | — | busca de element instance |
 | `jobKey` | — | busca do Job |
 | `incidentKey` | — | busca do incidente |
 
-`bpmnPath` e `orderBpmnPath` são os únicos valores que não sobrevivem a outra máquina. Ajuste em **Variables** da coleção antes de rodar as pastas `20` e `50`.
+`bpmnPath`, `orderBpmnPath` e `scaleBpmnPath` são os únicos valores que não sobrevivem a outra máquina. Ajuste em **Variables** da coleção antes de rodar as pastas `20`, `50` e `60`.
 
 ## Ordem
 
@@ -64,6 +70,8 @@ As pastas são numeradas porque dependem umas das outras. Rodar `30` sem `20` n�
 | `30 — Instância` | 6 | `20` |
 | `40 — Jobs pela REST` | 2 | `20` |
 | `50 — Retries, incidentes e recuperação` | 13 | `orderBpmnPath` válido **e o `retry-worker` no ar** |
+| `60 — Escala e concorrência do worker` | 2 | `scaleBpmnPath` válido |
+| `61 — Prova manual da Lesson 004` | 9 | `scaleBpmnPath` válido; execução **manual**, não no Runner |
 | `90 — Descoberta da API` | 2 | — |
 
 ## A pasta `50` exige worker — e essa é a diferença
@@ -80,6 +88,39 @@ node infra/local/collections/run-collections.mjs --folder "50 —"
 ```
 
 Rodar `30` e depois `50` na mesma execução é seguro: a `50` sobrescreve `processInstanceKey` com a instância dela, e nada depois dela depende da instância da Lesson 002.
+
+## A pasta `60` — três clientes lógicos, um broker
+
+A pasta `60` não precisa de worker Java: os "workers" são três valores de `worker` em chamadas
+`POST /v2/jobs/activation`. `w4-a` e `w4-b` disputam os mesmos 8 Jobs; `w4-drain` recebe os 2
+restantes. O request de deploy captura `scaleProcessDefinitionKey`; o segundo request roda o
+experimento inteiro via `pm.sendRequest` — 10 instâncias, ativações `4`/`4`/`2`, asserções de
+disjunção de `jobKey`, 10 completions e poll da instância `COMPLETED`.
+
+Duas armadilhas ficaram registradas nessa pasta:
+
+- **`/v2/jobs/search` sem filtro de estado devolve Jobs `COMPLETED` de rodadas anteriores.** A
+  pré-checagem usa `{"filter":{"type":"lesson-004-scale","state":"CREATED"}}`. Sem o `state`, a
+  segunda execução da coleção reprova por causa dos próprios Jobs concluídos da primeira.
+- **O estado devolvido pelo search atrasa em relação ao comando.** Logo após ativar e completar,
+  o search ainda mostrava `CREATED`; após alguns segundos, `COMPLETED`. A prova da fila é o lote
+  `w4-drain` ter recebido os 2 Jobs restantes, não o estado lido da projeção secundária.
+
+## A pasta `61` — prova manual, um request por vez
+
+A pasta `60` executa tudo dentro de um script; a `61` abre o experimento para inspeção. **Não rode no Collection Runner**: o request `02` precisa ser enviado dez vezes, mudando `seq` de 1 a 10 no corpo. A ordem manual é:
+
+1. `00` — pré-checagem (`state: CREATED`); reinicia as quatro variáveis de rastreio.
+2. `01` — deploy; captura `scaleProcessDefinitionKey`.
+3. `02` — criar instância, **10 envios** com `seq` 1 a 10; cada envio acrescenta a chave em `manualInstanceKeys`.
+4. `03` — ver a fila: 10 Jobs `CREATED` antes de qualquer ativação. O script faz poll porque a projeção atrasa ~3 s (E9/E16); a primeira versão, sem poll, reprovou com `esperava 10, veio 2` (E17).
+5. `04` / `05` / `06` — ativações `w4-a`, `w4-b`, `w4-drain`, com lotes `4`/`4`/`2`; cada uma guarda seus `jobKey`.
+6. `07` — completions no script, para o *lease* de 120 s não expirar enquanto você clica.
+7. `08` — asserções: `4 + 4 + 2`, nenhuma chave repetida, interseção vazia entre `w4-a` e `w4-b`, e as 10 instâncias capturadas `COMPLETED`.
+
+A prova central está no request `08`, não no `200`: a disjunção de `jobKey` mostra que o mesmo Job nunca foi entregue a dois clientes. `w4-drain` ter recebido os 2 restantes mostra a fila no Broker.
+
+Execução de verificação: o fluxo foi simulado numa cópia temporária com o request `02` repetido dez vezes — `18 request(s), 22 asserção(ões), 0 request(s) com falha`. O validador reportou `OK: 46 request(s) conferem com a spec viva do cluster.` (E17).
 
 ## Os dois modos da pasta `30`
 

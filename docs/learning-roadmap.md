@@ -34,8 +34,8 @@ para comparar.
 | [001](lessons/001-camunda7-8-mental-model/lesson.md) | Onde esses conceitos vivem dentro do Camunda 8 | `completed` |
 | [002](lessons/002-deploy-instance-worker/lesson.md) | Deploy, Instância e Primeiro Job Worker | `completed` |
 | [003](lessons/003-retries-incidentes-recuperacao/lesson.md) | Retries, incidentes e recuperação | `completed` |
-| 004 | Escala e concorrência do worker | planejada |
-| 005 | Ciclo de vida e backpressure | planejada |
+| [004](lessons/004-escala-concorrencia-worker/lesson.md) | Escala e concorrência do worker | `completed` |
+| 005 | Ciclo de vida do Job e backpressure | planejada |
 
 **Ajuste de numeração, registrado em vez de sobrescrito.** Este módulo foi planejado como
 001 Onde os conceitos vivem · 002 Modelo de execução do Zeebe · 003 Execução BPMN · 004 Instâncias
@@ -50,9 +50,18 @@ Então os números foram reenquadrados para refletir o que foi de fato estudado:
 Retries, incidentes e recuperação**, o tema que era o 006. A ordem de aprendizado não muda — a
 fronteira transacional vem antes de retries, e retries vem antes de escala. Muda o rótulo.
 
-Os temas antigos 004 e 005 (escala, backpressure) entram como 004 e 005, e as lessons que
-interessam ao Módulo 3 — workers Java, testes de worker, ciclo de vida — permanecem nos módulos
-seguintes, sem duplicar.
+Os temas antigos 004 e 005 (escala, backpressure) entram como 004 e 005, com uma fronteira
+deliberada para não duplicar o Módulo 3:
+
+- **004 — Escala e concorrência do worker:** o que o motor garante quando vários clientes pedem o
+  mesmo `job type` — ativação exclusiva, limite por request de ativação e fila no Broker.
+- **005 — Ciclo de vida do Job e backpressure:** os estados do Job e por que o worker controla o
+  próprio ritmo (*polling* / *long polling*), sem configuração Java.
+- **014 — Configuração e observabilidade de workers Java/Spring Boot:** `maxJobsActive`,
+  `pollInterval`, concorrência de handler, *graceful shutdown* e métricas.
+
+A distinção não é o título: é a pergunta respondida. 004 e 005 respondem *o que o motor garante*;
+014 responde *como um worker Java é configurado e operado*.
 
 ## Módulo 2 — BPMN e comportamento de workflow
 
@@ -61,8 +70,8 @@ activities · 011 Padrões avançados de BPMN
 
 ## Módulo 3 — Java/Spring Boot
 
-012 Workers com Java/Spring Boot · 013 Testes de worker · 014 Ciclo de vida do worker,
-concorrência e backpressure
+012 Workers com Java/Spring Boot · 013 Testes de worker · 014 Configuração e observabilidade de
+workers Java/Spring Boot
 
 ## Módulo 4 — Sistemas distribuídos
 
